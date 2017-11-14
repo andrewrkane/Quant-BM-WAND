@@ -82,6 +82,68 @@ int main(int argc, char **argv)
   of_globalinfo << search_engine.document_count() << " "
                 << search_engine.term_count() << std::endl;
 
+  // AK: reordering list
+  vector<int> reorder;
+  vector<int> reorderInv;
+  int doc_count = search_engine.document_count();
+  int order_count = doc_count;
+  reorder.reserve(doc_count);
+  reorderInv.reserve(doc_count);
+  for (uint32_t i = 0; i < doc_count; i++) {
+    reorder.emplace_back(-1); reorderInv.emplace_back(-1);
+    doclen_vector.emplace_back(-1); // now index is reorderd id rather than original id.
+  }
+  string order_file = "-";
+  {
+    // AK: input order
+    std::cout << "Computing reordering from " << order_file << "." << std::endl;
+    // load order file
+    shared_ptr<istream> order_file_input;
+    if (order_file == "-")
+      order_file_input.reset(&cin, [](...){});
+    else
+      order_file_input.reset(new ifstream(order_file));
+    //std::ifstream order_file_input(order_file);
+    vector<pair<string, uint32_t>> order_names;
+    order_names.reserve(doc_count);
+    for (int i = 0;; i++) {
+      string line; getline(*order_file_input, line);
+      if (order_file_input->eof()) {
+        if (i <= 0) { std::cerr << "Error: Order file is empty." << std::endl; exit(1); }
+        if (i != doc_count) { std::cerr << "Found only " << i << " documents in order files." << std::endl; } break;
+      }
+      if (i>doc_count) { std::cerr << "Too many values in order file " << order_file << std::endl; return -1; }
+      order_names.emplace_back(line, i);
+    }
+    order_count = order_names.size();
+    // setup original order
+    vector<pair<string, uint32_t>> orig_names;
+    orig_names.reserve(doc_count);
+    long long start = search_engine.get_variable(ATIRE_DOCUMENT_FILE_START);
+    long long end = search_engine.get_variable(ATIRE_DOCUMENT_FILE_END);
+    unsigned long bsize = end - start;
+    char *buffer = (char *)malloc(bsize);
+    auto filenames = search_engine.get_document_filenames(buffer, &bsize);
+    for (int i = 0; i < doc_count; i++) {
+      orig_names.emplace_back(filenames[i], i);
+    }
+    // sorted join
+    std::sort(std::begin(order_names), std::end(order_names));
+    std::sort(std::begin(orig_names), std::end(orig_names));
+    int i = 0;
+    for (int j = 0; i < order_count && j < doc_count; j++) {
+      if (order_names[i].first < orig_names[j].first) { std::cerr << "Names in order file do not agree with index " << order_file << " " << order_names[i].first << " " << orig_names[i].first << std::endl; return -1; }
+      if (order_names[i].first > orig_names[j].first) { continue; } // skip missing names in order file
+      reorder[orig_names[j].second] = order_names[i].second;
+      reorderInv[order_names[i].second] = orig_names[j].second;
+      i++;
+    }
+    // cleanup
+    free(buffer);
+    // debugging
+    //std::cerr << "doc_count=" << doc_count << std::endl; for (uint32_t i = 0; i < 10; i++) { std::cerr << reorder[i] << " " << reorderInv[reorder[i]] << std::endl; }
+  }
+
   // write the lengths and names
   {
     std::cout << "Writing document lengths to " << doclen_tfile << "."
@@ -106,9 +168,11 @@ int main(int argc, char **argv)
     {
       for (long long i = 0; i < search_engine.document_count(); i++)
       {
-        doclen_out << lengths[i] << std::endl;
-        of_doc_names << filenames[i] << std::endl;
-        doclen_vector.push_back(lengths[i]);
+        // AK: reorder
+        if (reorderInv[i] < 0) { continue; } // skip missing names in order file
+        doclen_out << lengths[reorderInv[i]] << std::endl;
+        of_doc_names << filenames[reorderInv[i]] << std::endl;
+        doclen_vector[reorderInv[i]]=lengths[i];
       }
     }
 
@@ -235,18 +299,22 @@ int main(int argc, char **argv)
         end = raw + *doc_count_ptr;
         while (current < end) {
           docid += *current++;
-          post.emplace_back(docid, *impact_value_ptr);
+          post.emplace_back(reorder[docid], *impact_value_ptr);
         }
         impact_value_ptr++;
         impact_offset_ptr++;
         doc_count_ptr++;
       }
 
-      // The above will result in sorted by impact first, so re-sort by docid
-      std::sort(std::begin(post), std::end(post));
-
-      plist_type pl(ranker, post, index_format);
-      sdsl::serialize(pl, ofs);
+      // AK: reordering could cause prune list to be empty
+      if (post.size() > 0) {
+        // The above will result in sorted by impact first, so re-sort by docid
+        std::sort(std::begin(post), std::end(post));
+        plist_type pl(ranker, post, index_format);
+        sdsl::serialize(pl, ofs);
+      } else {
+        sdsl::serialize(block_postings_list<128>(), ofs);
+      }
 
     }
     //close output files
