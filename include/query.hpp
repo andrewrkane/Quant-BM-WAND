@@ -56,11 +56,11 @@ struct query_parser {
                      std::unordered_map<uint64_t,std::string>
                      >;
 
-    static mapping_t
-         load_dictionary(const std::string& collection_dir)
+    static void
+         load_dictionary(const std::string& collection_dir, mapping_t& mapping)
     {
-        std::unordered_map<std::string,uint64_t> id_mapping;
-        std::unordered_map<uint64_t,std::string> reverse_id_mapping;
+        std::unordered_map<std::string,uint64_t>& id_mapping = std::get<0>(mapping);
+        std::unordered_map<uint64_t,std::string>& reverse_id_mapping = std::get<1>(mapping);
         {
             auto dict_file = collection_dir + "/" + DICT_FILENAME;
             std::ifstream dfs(dict_file);
@@ -78,7 +78,6 @@ struct query_parser {
                 reverse_id_mapping[id] = term;
             }
         }
-        return {id_mapping,reverse_id_mapping};
     }
 
     static std::tuple<bool,uint64_t,std::vector<uint64_t>> 
@@ -158,8 +157,11 @@ struct query_parser {
                                               bool only_complete = false) {
         std::vector<query_t> queries;
 
+        // AK: pass mapping as a variable, because returning as value copies these large data structures
+        mapping_t mapping;
+
         /* load the mapping */
-        auto mapping = load_dictionary(collection_dir);
+        load_dictionary(collection_dir, mapping);
         /* parse queries */
         std::ifstream qfs(query_file); 
         if(!qfs.is_open()) {

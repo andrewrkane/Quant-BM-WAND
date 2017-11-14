@@ -289,5 +289,8 @@ main (int argc,char* const argv[])
     perror ("Could not output results to file.");
   }
 
+  // AK: avoid freeing all the data structures at end
+  exit(EXIT_SUCCESS);
+
   return EXIT_SUCCESS;
 }
