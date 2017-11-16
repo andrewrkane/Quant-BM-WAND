@@ -234,23 +234,25 @@ public:
 
   // Returns a pivot document and its candidate (UB estimated) score.
   // Conjunctive pivot selection, can be used by BMW and Wand algos
-  std::pair<typename std::vector<plist_wrapper*>::iterator, double>
-  determine_candidate(std::vector<plist_wrapper*>& postings_lists) {
+  void
+  determine_candidate(std::vector<plist_wrapper*>& postings_lists,
+                      /*output*/ typename std::vector<plist_wrapper*>::iterator& itr, double& score) {
     // Return the doc in the last list since it's furtherest along (and
     // the only doc that may contain ALL terms). Also return our
     // pre-computed sum of all UB scores (was computed upon recieving query).
-    return {postings_lists.end() - 1, m_conjunctive_max};
+    itr = postings_lists.end() - 1;
+    score = m_conjunctive_max;
   }
 
   // Returns a pivot document and its candidate (UB estimated) score.
   // For disjunctive processing, can be used by BMW and Wand algos.
-  std::pair<typename std::vector<plist_wrapper*>::iterator, double>
-  determine_candidate(std::vector<plist_wrapper*>& postings_lists,
-                      double threshold) {
+  void
+  determine_candidate(std::vector<plist_wrapper*>& postings_lists, double threshold,
+                      /*output*/ typename std::vector<plist_wrapper*>::iterator& itr, double& score) {
 
     threshold = threshold * m_F; //Theta push
-    double score = 0;
-    auto itr = postings_lists.begin();
+    score = 0;
+    itr = postings_lists.begin();
     auto end = postings_lists.end();
     while(itr != end) {
       score += (*itr)->list_max_score;
@@ -263,11 +265,10 @@ public:
           score += (*itr)->list_max_score;
           ++next;
         }
-        return {itr,score};
+        return;
       }
       ++itr;
     }
-    return {end,score};
   }
 
   // Evaluates the pivot document
@@ -407,9 +408,9 @@ public:
 
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
-    auto pivot_and_score = determine_candidate(postings_lists, threshold);
-    auto pivot_list = std::get<0>(pivot_and_score);
-    auto potential_score = std::get<1>(pivot_and_score);
+    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    double potential_score;
+    determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
     // While our pivot doc is not the end of the PL
     while (pivot_list != postings_lists.end()) {
@@ -426,10 +427,7 @@ public:
         forward_lists(postings_lists,pivot_list,(*pivot_list)->cur.docid());
       }
       // Grsb the next pivot and its potential score
-      pivot_and_score = determine_candidate(postings_lists, threshold);
-      pivot_list = std::get<0>(pivot_and_score);
-      potential_score = std::get<1>(pivot_and_score);
-
+      determine_candidate(postings_lists, threshold, pivot_list, potential_score);
     }
 
     // return the top-k results
@@ -454,9 +452,9 @@ public:
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
     size_t initial = postings_lists.size();
-    auto pivot_and_score = determine_candidate(postings_lists);
-    auto pivot_list = std::get<0>(pivot_and_score);
-    auto potential_score = std::get<1>(pivot_and_score);
+    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    double potential_score;
+    determine_candidate(postings_lists, pivot_list, potential_score);
 
     // While our pivot doc is not the end of the PL and we have not exhausted
     // any of our PL's
@@ -475,10 +473,7 @@ public:
         forward_lists(postings_lists,pivot_list,(*pivot_list)->cur.docid());
       }
       // Grsb the next pivot and its potential score
-      pivot_and_score = determine_candidate(postings_lists);
-      pivot_list = std::get<0>(pivot_and_score);
-      potential_score = std::get<1>(pivot_and_score);
-
+      determine_candidate(postings_lists, pivot_list, potential_score);
     }
 
     // return the top-k results
@@ -501,8 +496,9 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = 0;
     sort_list_by_id(postings_lists);
-    auto pivot_and_score = determine_candidate(postings_lists, threshold);
-    auto pivot_list = std::get<0>(pivot_and_score);
+    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    double potential_score;
+    determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
     // While we have got documents left to evaluate
     while (pivot_list != postings_lists.end()) {
@@ -530,11 +526,7 @@ public:
         forward_lists_bmw(postings_lists,pivot_list,candidate_id); 
       }
       // Grab a new pivot and keep going!
-      pivot_and_score = determine_candidate(postings_lists,
-                                            threshold);
-      pivot_list = std::get<0>(pivot_and_score);
-      potential_score = std::get<1>(pivot_and_score);
-      
+      determine_candidate(postings_lists, threshold, pivot_list, potential_score);
     }
 
     // return the top-k results
@@ -557,8 +549,9 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = 0;
     sort_list_by_id(postings_lists);
-    auto pivot_and_score = determine_candidate(postings_lists);
-    auto pivot_list = std::get<0>(pivot_and_score);
+    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    double potential_score;
+    determine_candidate(postings_lists, pivot_list, potential_score);
     size_t initial = postings_lists.size();
 
     // While we have got documents left to evaluate
@@ -588,10 +581,7 @@ public:
         forward_lists_bmw(postings_lists,pivot_list,candidate_id); 
       }
       // Grab a new pivot and keep going!
-      pivot_and_score = determine_candidate(postings_lists);
-      pivot_list = std::get<0>(pivot_and_score);
-      potential_score = std::get<1>(pivot_and_score);
-      
+      determine_candidate(postings_lists, pivot_list, potential_score);
     }
 
     // return the top-k results
