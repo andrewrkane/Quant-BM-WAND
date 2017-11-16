@@ -14,6 +14,24 @@
 
 using namespace sdsl;
 
+class score_heap : public std::priority_queue<doc_score, std::vector<doc_score>, std::greater<doc_score>> {
+public:
+  score_heap(const size_t k) {
+    for (int i=0; i<k; i++) { push({(uint64_t)-1,0.0}); }
+  }
+  result toresult() {
+    result res;
+    // return the top-k results
+    while (size()>0 && top().doc_id==(uint64_t)-1) { pop(); }
+    res.list.resize(size());
+    for (size_t i=0;i<res.list.size();i++) {
+      auto min = top(); pop();
+      res.list[res.list.size()-1-i] = min;
+    }
+    return res;
+  }
+};
+
 template<class t_pl = block_postings_list<128>,
          class t_rank = generic_rank>
 class idx_invfile {
@@ -273,9 +291,7 @@ public:
 
   // Evaluates the pivot document
   double evaluate_pivot(std::vector<plist_wrapper*>& postings_lists,
-                        std::priority_queue<doc_score,
-                        std::vector<doc_score>,
-                        std::greater<doc_score>>& heap,
+                        score_heap& heap,
                         double potential_score,
                         const double threshold,
                         const size_t k) {
@@ -314,28 +330,18 @@ public:
       itr++;
     }
     // add if it is in the top-k
-    if (heap.size() < k) {
+    if (heap.top().score < doc_score) {
+      heap.pop();
       heap.push({doc_id,doc_score});
-    } 
-    else {
-      if (heap.top().score < doc_score) {
-        heap.pop();
-        heap.push({doc_id,doc_score});
-      }
     }
     // resort
     sort_list_by_id(postings_lists);
-    if (heap.size()) {
-      return heap.top().score;
-    }
-    return 0.0f;
+    return heap.top().score;
   }
 
   // Block-Max pivot evaluation
   double evaluate_pivot_bmw(std::vector<plist_wrapper*>& postings_lists,
-                        std::priority_queue<doc_score,
-                        std::vector<doc_score>,
-                        std::greater<doc_score>>& heap,
+                        score_heap& heap,
                         double potential_score,
                         const double threshold,
                         const size_t k) {
@@ -377,34 +383,23 @@ public:
       itr++;
     }
     // add if it is in the top-k
-    if (heap.size() < k) {
+    if (heap.top().score < doc_score) {
+      heap.pop();
       heap.push({doc_id,doc_score});
-    } 
-    else {
-      if (heap.top().score < doc_score) {
-        heap.pop();
-        heap.push({doc_id,doc_score});
-      }
     }
     // resort
     sort_list_by_id(postings_lists);
-    if (heap.size()) {
-      return heap.top().score;
-    }
-    return 0.0f;
+    return heap.top().score;
   }
 
 
   // Wand Disjunctive Algorithm
   result process_wand_disjunctive(std::vector<plist_wrapper*>& postings_lists,
                                   const size_t k) {
-    result res;
-    // heap containing the top-k docs
-    std::priority_queue<doc_score,std::vector<doc_score>,
-                        std::greater<doc_score>> score_heap;
+    score_heap heap(k);
 
     // init list processing 
-    double threshold = 0.0f;
+    double threshold = heap.top().score;
 
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
@@ -417,7 +412,7 @@ public:
       // If the first posting ID is that of the pivot, evaluate!
       if (postings_lists[0]->cur.docid() == (*pivot_list)->cur.docid()) {
           threshold = evaluate_pivot(postings_lists,
-                                     score_heap,
+                                     heap,
                                      potential_score,
                                      threshold,
                                      k);
@@ -430,25 +425,16 @@ public:
       determine_candidate(postings_lists, threshold, pivot_list, potential_score);
     }
 
-    // return the top-k results
-    res.list.resize(score_heap.size());
-    for (size_t i=0;i<res.list.size();i++) {
-      auto min = score_heap.top(); score_heap.pop();
-      res.list[res.list.size()-1-i] = min;
-    }
-    return res;
+    return heap.toresult();
   }
 
   // Wand Conjunctive Algorithm
   result process_wand_conjunctive(std::vector<plist_wrapper*>& postings_lists,
                                   const size_t k) {
-    result res;
-    // heap containing the top-k docs
-    std::priority_queue<doc_score,std::vector<doc_score>,
-                        std::greater<doc_score>> score_heap;
+    score_heap heap(k);
 
     // init list processing 
-    double threshold = 0.0f;
+    double threshold = heap.top().score;
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
     size_t initial = postings_lists.size();
@@ -463,7 +449,7 @@ public:
       // If the first posting ID is that of the pivot, evaluate!
       if (postings_lists[0]->cur.docid() == (*pivot_list)->cur.docid()) {
           threshold = evaluate_pivot(postings_lists,
-                                     score_heap,
+                                     heap,
                                      potential_score,
                                      threshold,
                                      k);
@@ -476,25 +462,16 @@ public:
       determine_candidate(postings_lists, pivot_list, potential_score);
     }
 
-    // return the top-k results
-    res.list.resize(score_heap.size());
-    for (size_t i=0;i<res.list.size();i++) {
-      auto min = score_heap.top(); score_heap.pop();
-      res.list[res.list.size()-1-i] = min;
-    }
-    return res;
+    return heap.toresult();
   }
 
   // BlockMax Wand Disjunctive
   result process_bmw_disjunctive(std::vector<plist_wrapper*>& postings_lists,
                             const size_t k){   
-    result res;
-    // heap containing the top-k docs
-    std::priority_queue<doc_score,std::vector<doc_score>,
-                        std::greater<doc_score>> score_heap;
-    
+    score_heap heap(k);
+
     // init list processing , grab first pivot and potential score
-    double threshold = 0;
+    double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
     typename std::vector<plist_wrapper*>::iterator pivot_list;
     double potential_score;
@@ -512,7 +489,7 @@ public:
       if (candidate) {
         // If lists are aligned for pivot, score the doc
         if (postings_lists[0]->cur.docid() == candidate_id) {
-          threshold = evaluate_pivot_bmw(postings_lists, score_heap,
+          threshold = evaluate_pivot_bmw(postings_lists, heap,
                                      potential_score, threshold, k);
         }
         // Need to forward list before the pivot 
@@ -529,25 +506,16 @@ public:
       determine_candidate(postings_lists, threshold, pivot_list, potential_score);
     }
 
-    // return the top-k results
-    res.list.resize(score_heap.size());
-    for (size_t i=0;i<res.list.size();i++) {
-      auto min = score_heap.top(); score_heap.pop();
-      res.list[res.list.size()-1-i] = min;
-    }
-    return res;
+    return heap.toresult();
   }
 
   // BlockMax Wand Conjunctive
   result process_bmw_conjunctive(std::vector<plist_wrapper*>& postings_lists,
                                 const size_t k){   
-    result res;
-    // heap containing the top-k docs
-    std::priority_queue<doc_score,std::vector<doc_score>,
-                        std::greater<doc_score>> score_heap;
-    
+    score_heap heap(k);
+
     // init list processing , grab first pivot and potential score
-    double threshold = 0;
+    double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
     typename std::vector<plist_wrapper*>::iterator pivot_list;
     double potential_score;
@@ -567,7 +535,7 @@ public:
       if (candidate) {
         // If lists are aligned for pivot, score the doc
         if (postings_lists[0]->cur.docid() == candidate_id) {
-          threshold = evaluate_pivot_bmw(postings_lists, score_heap,
+          threshold = evaluate_pivot_bmw(postings_lists, heap,
                                      potential_score, threshold, k);
         }
         // Need to forward list before the pivot 
@@ -584,13 +552,7 @@ public:
       determine_candidate(postings_lists, pivot_list, potential_score);
     }
 
-    // return the top-k results
-    res.list.resize(score_heap.size());
-    for (size_t i=0;i<res.list.size();i++) {
-      auto min = score_heap.top(); score_heap.pop();
-      res.list[res.list.size()-1-i] = min;
-    }
-    return res;
+    return heap.toresult();
   }
 
 
