@@ -109,18 +109,18 @@ public:
 
   // Finds the posting with the least number of items remaining other than
   // the current ID
-  typename std::vector<plist_wrapper*>::iterator
+  uint32_t
   find_shortest_list(std::vector<plist_wrapper*>& postings_lists,
-                     const typename std::vector<plist_wrapper*>::iterator& end,
+                     uint32_t end,
                      const uint64_t id) 
   {
-    auto itr = postings_lists.begin();
+    uint32_t itr = 0;
     if (itr != end) {
       size_t smallest = std::numeric_limits<size_t>::max();
       auto smallest_itr = itr;
       while (itr != end) {
-        if ((*itr)->cur.remaining() < smallest && (*itr)->cur.docid() != id) {
-          smallest = (*itr)->cur.remaining();
+        if (postings_lists[itr]->cur.remaining() < smallest && postings_lists[itr]->cur.docid() != id) {
+          smallest = postings_lists[itr]->cur.remaining();
           smallest_itr = itr;
         }
         ++itr;
@@ -149,14 +149,14 @@ public:
 
   // WAND-Forwarding: Forwards smallest list to provided ID
   void forward_lists(std::vector<plist_wrapper*>& postings_lists,
-       const typename std::vector<plist_wrapper*>::iterator& pivot_list,
+       uint32_t& pivot_list,
        const uint64_t id) {
 
     auto smallest_itr = find_shortest_list(postings_lists,pivot_list,id);
     // advance the smallest list to the new id
-    (*smallest_itr)->cur.skip_to_id(id);
+    postings_lists[smallest_itr]->cur.skip_to_id(id);
 
-    if ((*smallest_itr)->cur == (*smallest_itr)->end) {
+    if (postings_lists[smallest_itr]->cur == postings_lists[smallest_itr]->end) {
       // list is finished! reorder list by id
       sort_list_by_id(postings_lists);
       return;
@@ -164,10 +164,10 @@ public:
 
     // bubble it down!
     auto next = smallest_itr + 1;
-    auto list_end = postings_lists.end();
+    uint32_t list_end = postings_lists.size();
     while (next != list_end && 
-           (*smallest_itr)->cur.docid() > (*next)->cur.docid()) {
-      std::swap(*smallest_itr,*next);
+           postings_lists[smallest_itr]->cur.docid() > postings_lists[next]->cur.docid()) {
+      std::swap(postings_lists[smallest_itr],postings_lists[next]);
       smallest_itr = next;
       next++;
     }
@@ -175,22 +175,21 @@ public:
 
   // BMW-Forwarding: Forwards beyond current block config
   void forward_lists_bmw(std::vector<plist_wrapper*>& postings_lists,
-                const typename std::vector<plist_wrapper*>::iterator& 
-                pivot_list, const uint64_t docid) {
+                uint32_t& pivot_list, const uint64_t docid) {
 
     // Find the shortest list
     auto smallest_iter = find_shortest_list(postings_lists, pivot_list+1, docid);
     // Determine the next ID which might need to be evaluated
-    auto list_end = postings_lists.end();
-    auto iter = postings_lists.begin();
+    uint32_t list_end = postings_lists.size();
+    uint32_t iter = 0;
     auto end = pivot_list + 1;
     uint64_t candidate_id = std::numeric_limits<uint64_t>::max();
 
     // 'shallow' forwarding - a block-max array look-up
     while (iter != end) {
       // The last ID in the block [without needed to actually skip to it]
-      uint64_t bid = (*iter)->cur.block_containing_id(docid);
-      uint64_t block_candidate = (*iter)->cur.block_rep(bid) + 1;
+      uint64_t bid = postings_lists[iter]->cur.block_containing_id(docid);
+      uint64_t block_candidate = postings_lists[iter]->cur.block_rep(bid) + 1;
       candidate_id = std::min(candidate_id, block_candidate);
       ++iter;
     }
@@ -198,7 +197,7 @@ public:
     // smallest DocID from the other remaining lists. Skipping this step
     // will result in loss of safe-to-k results.
     if (end != list_end) {
-      candidate_id = std::min(candidate_id, (*end)->cur.docid());
+      candidate_id = std::min(candidate_id, postings_lists[end]->cur.docid());
     }
 
     // Corner case check
@@ -206,10 +205,10 @@ public:
       candidate_id = docid + 1;
    
     // Advance the smallest list to our new candidate
-    (*smallest_iter)->cur.skip_to_id(candidate_id);
+    postings_lists[smallest_iter]->cur.skip_to_id(candidate_id);
     
     // If the smallest list is finished, reorder the lists
-    if ((*smallest_iter)->cur == (*smallest_iter)->end) {
+    if (postings_lists[smallest_iter]->cur == postings_lists[smallest_iter]->end) {
       sort_list_by_id(postings_lists);
       return;
     }
@@ -217,8 +216,8 @@ public:
     // Bubble it down.
     auto next = smallest_iter + 1;
     while (next != list_end && 
-          (*smallest_iter)->cur.docid() > (*next)->cur.docid()) {
-      std::swap(*smallest_iter, *next);
+          postings_lists[smallest_iter]->cur.docid() > postings_lists[next]->cur.docid()) {
+      std::swap(postings_lists[smallest_iter], postings_lists[next]);
       smallest_iter = next;
       ++next;
     }
@@ -229,17 +228,16 @@ public:
   // a boolean (whether we should indeed score, or not)
   const std::pair<bool, double> 
   potential_candidate(std::vector<plist_wrapper*>& postings_lists,
-                      const typename std::vector<plist_wrapper*>::iterator& 
-                      pivot_list, const double threshold, 
+                      uint32_t& pivot_list, const double threshold,
                       const uint64_t doc_id){
 
-    auto iter = postings_lists.begin();
-    double block_max_score = (*pivot_list)->cur.block_max(); // pivot blockmax
+    uint32_t iter = 0;
+    double block_max_score = postings_lists[pivot_list]->cur.block_max(); // pivot blockmax
 
     // Lists preceding pivot list block max scores
     while (iter != pivot_list) {
-      uint64_t bid = (*iter)->cur.block_containing_id(doc_id);
-      block_max_score += (*iter)->cur.block_max(bid);
+      uint64_t bid = postings_lists[iter]->cur.block_containing_id(doc_id);
+      block_max_score += postings_lists[iter]->cur.block_max(bid);
       ++iter;
     }
 
@@ -254,11 +252,11 @@ public:
   // Conjunctive pivot selection, can be used by BMW and Wand algos
   void
   determine_candidate(std::vector<plist_wrapper*>& postings_lists,
-                      /*output*/ typename std::vector<plist_wrapper*>::iterator& itr, double& score) {
+                      /*output*/ uint32_t& itr, double& score) {
     // Return the doc in the last list since it's furtherest along (and
     // the only doc that may contain ALL terms). Also return our
     // pre-computed sum of all UB scores (was computed upon recieving query).
-    itr = postings_lists.end() - 1;
+    itr = postings_lists.size() - 1;
     score = m_conjunctive_max;
   }
 
@@ -266,21 +264,21 @@ public:
   // For disjunctive processing, can be used by BMW and Wand algos.
   void
   determine_candidate(std::vector<plist_wrapper*>& postings_lists, double threshold,
-                      /*output*/ typename std::vector<plist_wrapper*>::iterator& itr, double& score) {
+                      /*output*/ uint32_t& itr, double& score) {
 
     threshold = threshold * m_F; //Theta push
     score = 0;
-    itr = postings_lists.begin();
-    auto end = postings_lists.end();
+    itr = 0;
+    auto end = postings_lists.size();
     while(itr != end) {
-      score += (*itr)->list_max_score;
+      score += postings_lists[itr]->list_max_score;
       if(score > threshold) {
         // forward to last list equal to pivot
-        auto pivot_id = (*itr)->cur.docid();
+        auto pivot_id = postings_lists[itr]->cur.docid();
         auto next = itr+1;
-        while(next != end && (*next)->cur.docid() == pivot_id) {
+        while(next != end && postings_lists[next]->cur.docid() == pivot_id) {
           itr = next;
-          score += (*itr)->list_max_score;
+          score += postings_lists[itr]->list_max_score;
           ++next;
         }
         return;
@@ -403,14 +401,14 @@ public:
 
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
-    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    uint32_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
     // While our pivot doc is not the end of the PL
-    while (pivot_list != postings_lists.end()) {
+    while (pivot_list != postings_lists.size()) {
       // If the first posting ID is that of the pivot, evaluate!
-      if (postings_lists[0]->cur.docid() == (*pivot_list)->cur.docid()) {
+      if (postings_lists[0]->cur.docid() == postings_lists[pivot_list]->cur.docid()) {
           threshold = evaluate_pivot(postings_lists,
                                      heap,
                                      potential_score,
@@ -419,7 +417,7 @@ public:
       }
       // We must forward the lists before the puvot up to our pivot doc  
       else {
-        forward_lists(postings_lists,pivot_list,(*pivot_list)->cur.docid());
+        forward_lists(postings_lists,pivot_list,postings_lists[pivot_list]->cur.docid());
       }
       // Grsb the next pivot and its potential score
       determine_candidate(postings_lists, threshold, pivot_list, potential_score);
@@ -438,16 +436,16 @@ public:
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
     size_t initial = postings_lists.size();
-    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    uint32_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, pivot_list, potential_score);
 
     // While our pivot doc is not the end of the PL and we have not exhausted
     // any of our PL's
-    while (pivot_list != postings_lists.end() && 
+    while (pivot_list != postings_lists.size() &&
                 postings_lists.size() == initial) {
       // If the first posting ID is that of the pivot, evaluate!
-      if (postings_lists[0]->cur.docid() == (*pivot_list)->cur.docid()) {
+      if (postings_lists[0]->cur.docid() == postings_lists[pivot_list]->cur.docid()) {
           threshold = evaluate_pivot(postings_lists,
                                      heap,
                                      potential_score,
@@ -456,7 +454,7 @@ public:
       }
       // We must forward the lists before the pivot up to our pivot doc  
       else {
-        forward_lists(postings_lists,pivot_list,(*pivot_list)->cur.docid());
+        forward_lists(postings_lists,pivot_list,postings_lists[pivot_list]->cur.docid());
       }
       // Grsb the next pivot and its potential score
       determine_candidate(postings_lists, pivot_list, potential_score);
@@ -473,13 +471,13 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
-    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    uint32_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
     // While we have got documents left to evaluate
-    while (pivot_list != postings_lists.end()) {
-      uint64_t candidate_id = (*pivot_list)->cur.docid();
+    while (pivot_list != postings_lists.size()) {
+      uint64_t candidate_id = postings_lists[pivot_list]->cur.docid();
       // Second level candidate check
       auto candidate_and_score = potential_candidate(postings_lists, pivot_list,
                                           threshold, candidate_id);
@@ -517,15 +515,15 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
-    typename std::vector<plist_wrapper*>::iterator pivot_list;
+    uint32_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, pivot_list, potential_score);
     size_t initial = postings_lists.size();
 
     // While we have got documents left to evaluate
-    while (pivot_list != postings_lists.end() &&
+    while (pivot_list != postings_lists.size() &&
                          postings_lists.size() == initial) {
-      uint64_t candidate_id = (*pivot_list)->cur.docid();
+      uint64_t candidate_id = postings_lists[pivot_list]->cur.docid();
       // Second level candidate check
       auto candidate_and_score = potential_candidate(postings_lists, pivot_list,
                                           threshold, candidate_id);
