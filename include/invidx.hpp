@@ -116,11 +116,13 @@ public:
   {
     uint32_t itr = 0;
     if (itr != end) {
-      size_t smallest = std::numeric_limits<size_t>::max();
+      size_t smallest = postings_lists[itr]->cur.remaining();
       auto smallest_itr = itr;
+      itr++;
       while (itr != end) {
-        if (postings_lists[itr]->cur.remaining() < smallest && postings_lists[itr]->cur.docid() != id) {
-          smallest = postings_lists[itr]->cur.remaining();
+        size_t rem = postings_lists[itr]->cur.remaining();
+        if (rem < smallest && postings_lists[itr]->cur.docid() != id) {
+          smallest = rem;
           smallest_itr = itr;
         }
         ++itr;
@@ -130,20 +132,24 @@ public:
     return end;
   }
 
+  static int id_sort(const plist_wrapper* a,const plist_wrapper* b) {
+    return a->cur.docid() < b->cur.docid();
+  };
+
   void sort_list_by_id(std::vector<plist_wrapper*>& plists) {
     // delete if necessary
-    auto del_itr = plists.begin();
-    while (del_itr != plists.end()) {
-      if ((*del_itr)->cur == (*del_itr)->end) {
-        del_itr = plists.erase(del_itr);
+    for (size_t di=0; di<plists.size();) {
+      if (plists[di]->cur == plists[di]->end) {
+        // remove by bubble up and pop
+        for (size_t si=di; si+1<plists.size(); ++si) {
+          std::swap(plists[si],plists[si+1]);
+        }
+        plists.pop_back();
       } else {
-        del_itr++;
+        ++di;
       }
     }
     // sort
-    auto id_sort = [](const plist_wrapper* a,const plist_wrapper* b) {
-      return a->cur.docid() < b->cur.docid();
-    };
     std::sort(plists.begin(),plists.end(),id_sort);
   }
 
@@ -169,7 +175,7 @@ public:
            postings_lists[smallest_itr]->cur.docid() > postings_lists[next]->cur.docid()) {
       std::swap(postings_lists[smallest_itr],postings_lists[next]);
       smallest_itr = next;
-      next++;
+      ++next;
     }
   }
 
@@ -226,7 +232,7 @@ public:
   // Block-Max specific candidate test. Tests that the current pivot's block-max
   // scores still exceed the heap threshold. Returns the block-max score sum and
   // a boolean (whether we should indeed score, or not)
-  const std::pair<bool, double> 
+  const std::pair<bool, double>
   potential_candidate(std::vector<plist_wrapper*>& postings_lists,
                       uint32_t& pivot_list, const double threshold,
                       const uint64_t doc_id){
@@ -297,27 +303,27 @@ public:
     auto doc_id = postings_lists[0]->cur.docid(); //Pivot ID
     double doc_score = 0;
     double W_d = ranker->doc_length(doc_id);
-    auto itr = postings_lists.begin();
-    auto end = postings_lists.end();
+    size_t itr = 0;
+    size_t end = postings_lists.size();
     // Iterate postings 
     while (itr != end) {
       // Score the document if
-      if ((*itr)->cur.docid() == doc_id) {
-        double contrib = ranker->calculate_docscore((*itr)->cur.freq(),
-                                                   (*itr)->f_t,
+      if (postings_lists[itr]->cur.docid() == doc_id) {
+        double contrib = ranker->calculate_docscore(postings_lists[itr]->cur.freq(),
+                                                   postings_lists[itr]->f_t,
                                                    W_d);
         doc_score += contrib;
         potential_score += contrib;
-        potential_score -= (*itr)->list_max_score; //Incremental refinement
-        ++((*itr)->cur); // move to next larger doc_id
+        potential_score -= postings_lists[itr]->list_max_score; //Incremental refinement
+        ++(postings_lists[itr]->cur); // move to next larger doc_id
         // Check the refined potential max score 
         if (potential_score < threshold) {
           // Doc can no longer make the heap. Forward relevant lists.
-          itr++;
-          while (itr != end && (*itr)->cur != (*itr)->end 
-                            && (*itr)->cur.docid() == doc_id) {
-            ++((*itr)->cur);
-            itr++;
+          ++itr;
+          while (itr != end && postings_lists[itr]->cur != postings_lists[itr]->end
+                            && postings_lists[itr]->cur.docid() == doc_id) {
+            ++(postings_lists[itr]->cur);
+            ++itr;
           }
           break;
         }
@@ -325,7 +331,7 @@ public:
       else {
         break;
       }
-      itr++;
+      ++itr;
     }
     // add if it is in the top-k
     if (heap.top().score < doc_score) {
@@ -347,30 +353,30 @@ public:
     uint64_t doc_id = postings_lists[0]->cur.docid(); // pivot
     double doc_score = 0;
     double W_d = ranker->doc_length(doc_id);
-    auto itr = postings_lists.begin();
-    auto end = postings_lists.end();
+    size_t itr = 0;
+    size_t end = postings_lists.size();
     
     // Iterate PLs
     while (itr != end) {
       // If we have the pivot, contribute the score
-      if ((*itr)->cur.docid() == doc_id) {
-        double contrib = ranker->calculate_docscore((*itr)->cur.freq(),
-                                                   (*itr)->f_t,
+      if (postings_lists[itr]->cur.docid() == doc_id) {
+        double contrib = ranker->calculate_docscore(postings_lists[itr]->cur.freq(),
+                                                   postings_lists[itr]->f_t,
                                                    W_d);
         doc_score += contrib;
         potential_score += contrib;
         // Differs from WAND version as we use BM scores for estimation
-        uint64_t bid = (*itr)->cur.block_containing_id(doc_id);
-        potential_score -= (*itr)->cur.block_max(bid);
-        ++((*itr)->cur); // move to next larger doc_id
+        uint64_t bid = postings_lists[itr]->cur.block_containing_id(doc_id);
+        potential_score -= postings_lists[itr]->cur.block_max(bid);
+        ++(postings_lists[itr]->cur); // move to next larger doc_id
         // Doc cannot make heap, but we need to forward lists anyway 
         if (potential_score < threshold) {
           // move the other equal ones ahead still! 
-          itr++;
-          while (itr != end && (*itr)->cur != (*itr)->end 
-                            && (*itr)->cur.docid() == doc_id) {
-            ++((*itr)->cur);
-            itr++;
+          ++itr;
+          while (itr != end && postings_lists[itr]->cur != postings_lists[itr]->end
+                            && postings_lists[itr]->cur.docid() == doc_id) {
+            ++(postings_lists[itr]->cur);
+            ++itr;
           }
           break;
         }  
@@ -378,7 +384,7 @@ public:
       else {
         break;
       }
-      itr++;
+      ++itr;
     }
     // add if it is in the top-k
     if (heap.top().score < doc_score) {
@@ -415,7 +421,7 @@ public:
                                      threshold,
                                      k);
       }
-      // We must forward the lists before the puvot up to our pivot doc  
+      // We must forward the lists before the pivot up to our pivot doc
       else {
         forward_lists(postings_lists,pivot_list,postings_lists[pivot_list]->cur.docid());
       }
