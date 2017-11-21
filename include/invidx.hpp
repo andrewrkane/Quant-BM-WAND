@@ -46,9 +46,10 @@ private:
     typename plist_type::const_iterator end;
     double list_max_score;
     double f_t;
+    size_t list_size;
     plist_wrapper() = default;
     plist_wrapper(plist_type& pl) {
-      f_t = pl.size(); 
+      f_t = list_size = pl.size();
       cur = pl.begin();
       end = pl.end();
       list_max_score = pl.list_max_score();
@@ -107,8 +108,7 @@ public:
     }
   }
 
-  // Finds the posting with the least number of items remaining other than
-  // the current ID
+  // Finds the smallest postings list before the specified ID
   uint32_t
   find_shortest_list(std::vector<plist_wrapper*>& postings_lists,
                      uint32_t end,
@@ -116,11 +116,11 @@ public:
   {
     uint32_t itr = 0;
     if (itr != end) {
-      size_t smallest = postings_lists[itr]->cur.remaining();
+      size_t smallest = postings_lists[itr]->list_size;
       auto smallest_itr = itr;
       itr++;
       while (itr != end) {
-        size_t rem = postings_lists[itr]->cur.remaining();
+        size_t rem = postings_lists[itr]->list_size;
         if (rem < smallest && postings_lists[itr]->cur.docid() != id) {
           smallest = rem;
           smallest_itr = itr;
