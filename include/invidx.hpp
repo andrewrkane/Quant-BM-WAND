@@ -109,12 +109,12 @@ public:
   }
 
   // Finds the smallest postings list before the specified ID
-  uint32_t
+  size_t
   find_shortest_list(std::vector<plist_wrapper*>& postings_lists,
-                     uint32_t end,
+                     size_t end,
                      const uint64_t id) 
   {
-    uint32_t itr = 0;
+    size_t itr = 0;
     if (itr != end) {
       size_t smallest = postings_lists[itr]->list_size;
       auto smallest_itr = itr;
@@ -155,7 +155,7 @@ public:
 
   // WAND-Forwarding: Forwards smallest list to provided ID
   void forward_lists(std::vector<plist_wrapper*>& postings_lists,
-       uint32_t& pivot_list,
+       size_t& pivot_list,
        const uint64_t id) {
 
     auto smallest_itr = find_shortest_list(postings_lists,pivot_list,id);
@@ -170,7 +170,7 @@ public:
 
     // bubble it down!
     auto next = smallest_itr + 1;
-    uint32_t list_end = postings_lists.size();
+    size_t list_end = postings_lists.size();
     while (next != list_end && 
            postings_lists[smallest_itr]->cur.docid() > postings_lists[next]->cur.docid()) {
       std::swap(postings_lists[smallest_itr],postings_lists[next]);
@@ -181,13 +181,13 @@ public:
 
   // BMW-Forwarding: Forwards beyond current block config
   void forward_lists_bmw(std::vector<plist_wrapper*>& postings_lists,
-                uint32_t& pivot_list, const uint64_t docid) {
+                size_t& pivot_list, const uint64_t docid) {
 
     // Find the shortest list
     auto smallest_iter = find_shortest_list(postings_lists, pivot_list+1, docid);
     // Determine the next ID which might need to be evaluated
-    uint32_t list_end = postings_lists.size();
-    uint32_t iter = 0;
+    size_t list_end = postings_lists.size();
+    size_t iter = 0;
     auto end = pivot_list + 1;
     uint64_t candidate_id = std::numeric_limits<uint64_t>::max();
 
@@ -234,10 +234,10 @@ public:
   // a boolean (whether we should indeed score, or not)
   const std::pair<bool, double>
   potential_candidate(std::vector<plist_wrapper*>& postings_lists,
-                      uint32_t& pivot_list, const double threshold,
+                      size_t& pivot_list, const double threshold,
                       const uint64_t doc_id){
 
-    uint32_t iter = 0;
+    size_t iter = 0;
     double block_max_score = postings_lists[pivot_list]->cur.block_max(); // pivot blockmax
 
     // Lists preceding pivot list block max scores
@@ -258,7 +258,7 @@ public:
   // Conjunctive pivot selection, can be used by BMW and Wand algos
   void
   determine_candidate(std::vector<plist_wrapper*>& postings_lists,
-                      /*output*/ uint32_t& itr, double& score) {
+                      /*output*/ size_t& itr, double& score) {
     // Return the doc in the last list since it's furtherest along (and
     // the only doc that may contain ALL terms). Also return our
     // pre-computed sum of all UB scores (was computed upon recieving query).
@@ -270,7 +270,7 @@ public:
   // For disjunctive processing, can be used by BMW and Wand algos.
   void
   determine_candidate(std::vector<plist_wrapper*>& postings_lists, double threshold,
-                      /*output*/ uint32_t& itr, double& score) {
+                      /*output*/ size_t& itr, double& score) {
 
     threshold = threshold * m_F; //Theta push
     score = 0;
@@ -407,7 +407,7 @@ public:
 
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
-    uint32_t pivot_list;
+    size_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
@@ -442,7 +442,7 @@ public:
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
     size_t initial = postings_lists.size();
-    uint32_t pivot_list;
+    size_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, pivot_list, potential_score);
 
@@ -477,7 +477,7 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
-    uint32_t pivot_list;
+    size_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, threshold, pivot_list, potential_score);
 
@@ -521,7 +521,7 @@ public:
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
-    uint32_t pivot_list;
+    size_t pivot_list;
     double potential_score;
     determine_candidate(postings_lists, pivot_list, potential_score);
     size_t initial = postings_lists.size();
