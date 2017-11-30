@@ -40,11 +40,11 @@ class plist_iterator
     plist_iterator& operator=(plist_iterator&& pi) = default;
   public:
     plist_iterator(const list_type& l,size_t pos);
-    plist_iterator& operator++();
+    inline plist_iterator& operator++();
     bool operator ==(const plist_iterator& b) const;
     bool operator !=(const plist_iterator& b) const;
-    uint64_t docid() const;
-    uint64_t freq() const;
+    inline uint64_t docid() const;
+    inline uint64_t freq() const;
     void skip_to_id(const uint64_t id);
     void skip_to_block_with_id(const uint64_t id);
     double block_max() const;
@@ -61,9 +61,9 @@ class plist_iterator
     uint64_t num_blocks() const {
       return m_plist_ptr->num_blocks();
     }
-    size_t size() const { return m_plist_ptr->size(); }
-    size_t remaining() const { return size() - m_cur_pos; }
-    size_t offset() const { return m_cur_pos; }
+    inline size_t size() const { return m_plist_ptr->size(); }
+    inline size_t remaining() const { return size() - m_cur_pos; }
+    inline size_t offset() const { return m_cur_pos; }
   private:
     void access_and_decode_cur_pos() const;
   private:
@@ -507,12 +507,13 @@ plist_iterator<t_bs>::plist_iterator(const list_type& l,
 template<uint64_t t_bs>
 plist_iterator<t_bs>& plist_iterator<t_bs>::operator++()
 {
-  if (m_cur_pos != size()) { // end?
-    (*this).m_cur_pos++;
-  } else {
+# ifdef DEBUG
+  if (m_cur_pos == size()) { // end?
     std::cerr << "ERROR: trying to advance plist iterator beyond list end.\n";
     throw std::out_of_range("trying to advance plist iterator beyond list end");
   }
+# endif
+  (*this).m_cur_pos++;
   return (*this);
 }
 
@@ -532,10 +533,12 @@ bool plist_iterator<t_bs>::operator !=(const plist_iterator& b) const
 template<uint64_t t_bs>
 typename plist_iterator<t_bs>::value_type plist_iterator<t_bs>::docid() const
 {
+# ifdef DEBUG
   if (m_cur_pos == m_plist_ptr->size()) { // end?
     std::cerr << "ERROR: plist iterator dereferenced at list end.\n";
     throw std::out_of_range("plist iterator dereferenced at list end");
   }
+# endif
   if (m_cur_pos == m_last_accessed_id) {
     return m_cur_docid;
   }
@@ -552,10 +555,12 @@ double plist_iterator<t_bs>::block_max() const
 template<uint64_t t_bs>
 typename plist_iterator<t_bs>::value_type plist_iterator<t_bs>::freq() const
 {
+# ifdef DEBUG
   if (m_cur_pos == m_plist_ptr->size()) { // end?
     std::cerr << "ERROR: plist iterator dereferenced at list end.\n";
     throw std::out_of_range("plist iterator dereferenced at list end");
   }
+# endif
   if (m_cur_pos == m_last_accessed_id) {
     return m_cur_freq;
   }
