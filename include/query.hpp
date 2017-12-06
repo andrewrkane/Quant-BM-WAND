@@ -47,22 +47,50 @@ struct query_token{
     }
 };
 
-using query_t = std::tuple<uint64_t,std::vector<query_token>>;
+// AK: added start_heap to capture thresholds defined from postings lists at indexing time
+using query_t = std::tuple<uint64_t,std::vector<query_token>,double>; // query_id, query_tokens, start_heap
 
+#include <strstream>
+std::string itos( int n ) {
+  std::strstream ss;
+  ss << n;
+  return ss.str();
+}
 
 struct query_parser {
     query_parser() = delete;
-    using mapping_t = std::pair<std::unordered_map<std::string,uint64_t>,
-                     std::unordered_map<uint64_t,std::string>
+    using mapping_t = std::tuple<std::unordered_map<std::string,uint64_t>,
+                     std::unordered_map<uint64_t,std::string>,
+                     std::unordered_map<uint64_t,uint64_t>
                      >;
 
     static void
-         load_dictionary(const std::string& collection_dir, mapping_t& mapping)
+         load_dictionary(const std::string& collection_dir, mapping_t& mapping, const size_t list_threshold_k)
     {
+        std::unordered_map<uint64_t,uint64_t>& start_heap_mapping = std::get<2>(mapping);
+        if (list_threshold_k > 0) {
+            // AK: load also from list_thresholds_#.txt
+            auto list_thresholds_file = collection_dir + "/list_thresholds_" + itos(list_threshold_k) + ".txt";
+            std::cerr<<"loading "<<list_thresholds_file<<std::endl;
+            std::ifstream ifs(list_thresholds_file);
+            if(!ifs.is_open()) {
+                std::cerr << "cannot load list_thresholds file.";
+                exit(EXIT_FAILURE);
+            }
+            std::string impact_mapping;
+            while( std::getline(ifs,impact_mapping) ) {
+                auto sep_pos = impact_mapping.find(' ');
+                uint64_t id = std::stoull(impact_mapping.substr(0,sep_pos));
+                uint64_t list_thresholds = std::stoull(impact_mapping.substr(sep_pos+1));
+                start_heap_mapping[id] = list_thresholds;
+            }
+            std::cerr<<"done loading "<<list_thresholds_file<<std::endl;
+        }
         std::unordered_map<std::string,uint64_t>& id_mapping = std::get<0>(mapping);
         std::unordered_map<uint64_t,std::string>& reverse_id_mapping = std::get<1>(mapping);
         {
             auto dict_file = collection_dir + "/" + DICT_FILENAME;
+            std::cerr<<"loading "<<dict_file<<std::endl;
             std::ifstream dfs(dict_file);
             if(!dfs.is_open()) {
                 std::cerr << "cannot load dictionary file.";
@@ -76,7 +104,9 @@ struct query_parser {
                 uint64_t id = std::stoull(idstr);
                 id_mapping[term] = id;
                 reverse_id_mapping[id] = term;
+                if (list_threshold_k <= 0) { start_heap_mapping[id]=0; }
             }
+            std::cerr<<"done loading "<<dict_file<<std::endl;
         }
     }
 
@@ -116,20 +146,24 @@ struct query_parser {
                 const std::string& query_str,
                 bool only_complete = false,bool integers = false)
     {
+        double start_heap = 0.0;
 
-        const auto& id_mapping = mapping.first;
-        const auto& reverse_mapping = mapping.second;
+        const auto& id_mapping = std::get<0>(mapping);
+        const auto& reverse_mapping = std::get<1>(mapping);
+        const auto& start_heap_mapping = std::get<2>(mapping);
 
         auto mapped_qry = map_to_ids(id_mapping,query_str,only_complete,integers);
 
         bool parse_ok = std::get<0>(mapped_qry);
         auto qry_id = std::get<1>(mapped_qry);
-        
+
         if(parse_ok) {
             std::unordered_map<uint64_t,uint64_t> qry_set;
             const auto& tids = std::get<2>(mapped_qry);
             for(const auto& tid : tids) {
                 qry_set[tid] += 1;
+                // AK: start_heap using max top-1000 from lists
+                if (start_heap_mapping.at(tid)>start_heap) start_heap = start_heap_mapping.at(tid);
             }
             std::vector<query_token> query_tokens;
             size_t index = 0;
@@ -143,7 +177,7 @@ struct query_parser {
                 query_tokens.emplace_back(term,term_str,qry_tok.second);
                 ++index;
             }
-            query_t q(qry_id,query_tokens);
+            query_t q(qry_id,query_tokens,fmax(0.0,start_heap-1)); // AK: start_heap minus one so can find all in single list
             return {true,q};
         }
 
@@ -154,6 +188,7 @@ struct query_parser {
 
     static std::vector<query_t> parse_queries(const std::string& collection_dir,
                                               const std::string& query_file,
+                                              const size_t list_threshold_k = 0,
                                               bool only_complete = false) {
         std::vector<query_t> queries;
 
@@ -161,7 +196,7 @@ struct query_parser {
         mapping_t mapping;
 
         /* load the mapping */
-        load_dictionary(collection_dir, mapping);
+        load_dictionary(collection_dir, mapping, list_threshold_k);
         /* parse queries */
         std::ifstream qfs(query_file); 
         if(!qfs.is_open()) {
