@@ -26,12 +26,13 @@ int main(int argc, char **argv)
 	if (last_param == argc)
 	{
 		std::cout << "USAGE: " << argv[0];
-		std::cout << " [ATIRE options] <collection folder> <index_type>\n" 
+    std::cout << " [ATIRE options] <NONE|-|orderfilename> <collection folder> <index_type>\n"
               << " index type can be `BMW` or `WAND`" << std::endl;
 		return EXIT_FAILURE;
 	}
 	using clock = std::chrono::high_resolution_clock;
 
+  std::string order_file = argv[argc-3];
 	std::string collection_folder = argv[argc-2];
   std::string s_index_type = argv[argc-1];
 	create_directory(collection_folder);
@@ -90,11 +91,16 @@ int main(int argc, char **argv)
   reorder.reserve(doc_count);
   reorderInv.reserve(doc_count);
   for (uint32_t i = 0; i < doc_count; i++) {
-    reorder.emplace_back(-1); reorderInv.emplace_back(-1);
     doclen_vector.emplace_back(-1); // now index is reorderd id rather than original id.
   }
-  string order_file = "-";
-  {
+  if (order_file == "NONE") {
+    for (uint32_t i = 0; i < doc_count; i++) {
+      reorder.emplace_back(i); reorderInv.emplace_back(i);
+    }
+  } else {
+    for (uint32_t i = 0; i < doc_count; i++) {
+      reorder.emplace_back(-1); reorderInv.emplace_back(-1);
+    }
     // AK: input order
     std::cout << "Computing reordering from " << order_file << "." << std::endl;
     // load order file
@@ -112,7 +118,7 @@ int main(int argc, char **argv)
         if (i <= 0) { std::cerr << "Error: Order file is empty." << std::endl; exit(1); }
         if (i != doc_count) { std::cerr << "Found only " << i << " documents in order files." << std::endl; } break;
       }
-      if (i>doc_count) { std::cerr << "Too many values in order file " << order_file << std::endl; return -1; }
+      if (i>doc_count) { std::cerr<<"Too many values in order file (max="<<doc_count<<") "<<order_file<<std::endl; return -1; }
       order_names.emplace_back(line, i);
     }
     order_count = order_names.size();
