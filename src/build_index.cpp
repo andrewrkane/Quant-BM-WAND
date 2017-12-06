@@ -26,8 +26,8 @@ int main(int argc, char **argv)
 	if (last_param == argc)
 	{
 		std::cout << "USAGE: " << argv[0];
-    std::cout << " [ATIRE options] <NONE|-|orderfilename> <collection folder> <index_type>\n"
-              << " index type can be `BMW` or `WAND`" << std::endl;
+		std::cout << " [ATIRE options] <NONE|-|orderfilename> <collection folder> <index_type>\n"
+              << " index type can be `BMW` or `WAND` or `SPWAND`" << std::endl;
 		return EXIT_FAILURE;
 	}
 	using clock = std::chrono::high_resolution_clock;
@@ -47,13 +47,16 @@ int main(int argc, char **argv)
 
 	auto build_start = clock::now();
 
-  // Select the index format - BMW or WAND?
+  // Select the index format - BMW or WAND or SPWAND?
   index_form index_format;
   if (s_index_type == STRING_BMW) {
     index_format = BMW;
   }
   else if (s_index_type == STRING_WAND) {
     index_format = WAND;
+  }
+  else if (s_index_type == STRING_SPWAND) {
+    index_format = SPWAND;
   }
   else {
     std::cerr << "Incorrect index type specified. Exiting." << std::endl;
@@ -69,7 +72,7 @@ int main(int argc, char **argv)
   ANT_search_engine search_engine(&memory);
   search_engine.open(params.index_filename);
 
- // Keep track of term ordering
+  // Keep track of term ordering
   unordered_map<string, uint64_t> map;
 
   std::vector<uint64_t> doclen_vector;
@@ -116,7 +119,7 @@ int main(int argc, char **argv)
       string line; getline(*order_file_input, line);
       if (order_file_input->eof()) {
         if (i <= 0) { std::cerr << "Error: Order file is empty." << std::endl; exit(1); }
-        if (i != doc_count) { std::cerr << "Found only " << i << " documents in order files." << std::endl; } break;
+        if (i != doc_count) { std::cerr<<"Found only "<<i<<" documents in order files."<<std::endl; } break;
       }
       if (i>doc_count) { std::cerr<<"Too many values in order file (max="<<doc_count<<") "<<order_file<<std::endl; return -1; }
       order_names.emplace_back(line, i);
@@ -224,6 +227,13 @@ int main(int argc, char **argv)
 
   // write inverted files
   {
+    // output 1st,10th,100th and 1000th highest impacts for bootstrap thresholds
+    uint64_t list_thresholds_id=2;
+    ofstream list_thresholds_out_1(collection_folder+"/list_thresholds_1.txt");
+    ofstream list_thresholds_out_10(collection_folder+"/list_thresholds_10.txt");
+    ofstream list_thresholds_out_100(collection_folder+"/list_thresholds_100.txt");
+    ofstream list_thresholds_out_1000(collection_folder+"/list_thresholds_1000.txt");
+
     using plist_type = block_postings_list<128>;
     vector<plist_type> m_postings_lists;
     vector<vector<pair<uint64_t, uint64_t>>> temp_postings_lists;
@@ -232,6 +242,9 @@ int main(int argc, char **argv)
  
     vector<pair<uint64_t, uint64_t>> post; 
     post.reserve(INIT_SZ);
+    // AK: SPLITLISTS
+    vector<pair<uint64_t, uint64_t>> post2;
+    post2.reserve(INIT_SZ);
 
     // Open the files
     filebuf post_file;
@@ -263,7 +276,11 @@ int main(int argc, char **argv)
 
     // take the 0 and 1 terms with dummies
     sdsl::serialize(block_postings_list<128>(), ofs);
+    // AK: SPLITLISTS
+    if (index_format == SPWAND) sdsl::serialize(block_postings_list<128>(), ofs);
     sdsl::serialize(block_postings_list<128>(), ofs);
+    // AK: SPLITLISTS
+    if (index_format == SPWAND) sdsl::serialize(block_postings_list<128>(), ofs);
 
      for (char *term = iter.first(NULL); term != NULL; term_count++, term = iter.next())
     {
@@ -296,21 +313,48 @@ int main(int argc, char **argv)
 
       post.clear();
       post.reserve(leaf.local_document_frequency);
+      // AK: SPLITLISTS
+      if (index_format == SPWAND) {
+        post2.clear();
+        post2.reserve(leaf.local_document_frequency);
+      }
 
+      // AK: SPLITLISTS
+      bool bSecondList = false;
 
       while (doc_count_ptr < impact_offset_start) {
+        // AK: SPLITLISTS >10k and use 10% of list size up to change of impact/quantum
+        static int splitListsMinSize = 10000;
+        if (index_format == SPWAND && !bSecondList
+            && leaf.local_document_frequency>splitListsMinSize
+            && post.size()>((double)leaf.local_document_frequency)*0.10) {
+          bSecondList = true;
+        }
+
         factory.decompress(raw, postings_list + beginning_of_the_postings + *impact_offset_ptr, *doc_count_ptr);
         docid = -1;
         current = raw;
         end = raw + *doc_count_ptr;
         while (current < end) {
           docid += *current++;
-          post.emplace_back(reorder[docid], *impact_value_ptr);
+          // AK: SPLITLISTS
+          if (index_format == SPWAND && bSecondList) {
+            post2.emplace_back(reorder[docid], *impact_value_ptr);
+          } else {
+            post.emplace_back(reorder[docid], *impact_value_ptr);
+          }
         }
         impact_value_ptr++;
         impact_offset_ptr++;
         doc_count_ptr++;
       }
+
+      // AK: output 1st,10th,100th and 1000th highest impact (to bootstrap threshold values)
+      list_thresholds_out_1<<list_thresholds_id<<" "<<(post.size()>=1?post[1-1].second:0)<<endl;
+      list_thresholds_out_10<<list_thresholds_id<<" "<<(post.size()>=1?post[10-1].second:0)<<endl;
+      list_thresholds_out_100<<list_thresholds_id<<" "<<(post.size()>=1?post[100-1].second:0)<<endl;
+      list_thresholds_out_1000<<list_thresholds_id<<" "<<(post.size()>=1?post[1000-1].second:0)<<endl;
+      list_thresholds_id++;
 
       // AK: reordering could cause prune list to be empty
       if (post.size() > 0) {
@@ -320,6 +364,19 @@ int main(int argc, char **argv)
         sdsl::serialize(pl, ofs);
       } else {
         sdsl::serialize(block_postings_list<128>(), ofs);
+      }
+      // AK: SPLITLISTS
+      if (index_format == SPWAND) {
+        if (post2.size() > 0) {
+          // The above will result in sorted by impact first, so re-sort by docid
+          std::sort(std::begin(post2), std::end(post2));
+          plist_type pl(ranker, post2, index_format);
+          sdsl::serialize(pl, ofs);
+          // debugging
+          //if (post.size()+post2.size()>100000) std::cerr<<" sp("<<post.size()<<","<<post2.size()<<")";
+        } else {
+          sdsl::serialize(block_postings_list<128>(), ofs);
+        }
       }
 
     }
