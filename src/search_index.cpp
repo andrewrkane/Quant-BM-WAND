@@ -26,6 +26,7 @@ typedef struct cmdargs {
     double F_boost;
     query_traversal traversal;
     std::string traversal_string;
+    list_threshold use_list_threshold;
 } cmdargs_t;
 
 void print_usage(std::string program) {
@@ -73,12 +74,18 @@ parse_args(int argc, char* const argv[])
         break;
       case 't':
         args.traversal_string = optarg;
-        if (args.traversal_string == "OR")
+        if (args.traversal_string == "OR" || args.traversal_string == "LTOR" || args.traversal_string == "LT1kOR")
           args.traversal = OR;
-        else if (args.traversal_string == "AND")
+        else if (args.traversal_string == "AND" || args.traversal_string == "LTAND" || args.traversal_string == "LT1kAND")
           args.traversal = AND;
-        else 
+        else
           print_usage(argv[0]);
+        if (args.traversal_string == "LTOR" || args.traversal_string == "LTAND")
+          args.use_list_threshold = LTDYNAMIC;
+        else if (args.traversal_string == "LT1kOR" || args.traversal_string == "LT1kAND")
+          args.use_list_threshold = LT1k;
+        else
+          args.use_list_threshold = LTOFF;
         break;
       case '?':
       default:
@@ -116,10 +123,12 @@ main (int argc,char* const argv[])
   index_form t_index_type;
   if (t_traversal == STRING_WAND)
     t_index_type = WAND;
+  else if (t_traversal == STRING_SPWAND)
+    t_index_type = SPWAND;
   else if (t_traversal == STRING_BMW)
     t_index_type = BMW;
   else {
-    std::cerr << "Index is corrupted. Please rebuild." << std::endl;
+    std::cerr << "Index is corrupted (traversal="<<t_traversal<<"). Please rebuild." << std::endl;
     exit(EXIT_FAILURE);
   }
 
@@ -132,24 +141,21 @@ main (int argc,char* const argv[])
     t_postings_type = QUANTIZED;
   }
   else {
-    std::cerr << "Index is corrupted. Please rebuild." << std::endl;
+    std::cerr << "Index is corrupted (postings="<<t_postings<<"). Please rebuild." << std::endl;
     exit(EXIT_FAILURE);
   }
 
  
   /* parse queries */
   std::cout << "Parsing query file '" << args.query_file << "'" << std::endl;
-  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file);
+  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file, (args.use_list_threshold==LT1k?1000:args.k));
   std::cout << "Found " << queries.size() << " queries." << std::endl;
 
   std::string index_name(basename(strdup(args.collection_dir.c_str())));
-
-  /* load the index */
-  my_index_t index;
  
   auto load_start = clock::now();
-  // Construct index instance.
-  construct(index, args.postings_file, args.F_boost);
+  /* load the index */
+  my_index_t index(args.postings_file, args.F_boost, t_index_type);
 
   // Prepare Ranker
   uint64_t temp;
@@ -190,12 +196,14 @@ main (int argc,char* const argv[])
     for(const auto& query: queries) {
       auto id = std::get<0>(query);
       auto qry_tokens = std::get<1>(query);
-      std::cout << "[" << id << "] |Q|=" << qry_tokens.size(); 
+      auto start_heap = std::get<2>(query);
+      std::cout << "[" << id << "] |Q|=" << qry_tokens.size();
       std::cout.flush();
 
       // run the query
       auto qry_start = clock::now();
-      auto results = index.search(qry_tokens,args.k, t_index_type, args.traversal);
+      if (args.use_list_threshold == LTOFF) start_heap = 0.0;
+      auto results = index.search(qry_tokens, args.k, start_heap, t_index_type, args.traversal);
       auto qry_stop = clock::now();
 
       auto query_time = std::chrono::duration_cast<std::chrono::microseconds>(qry_stop-qry_start);

@@ -60,14 +60,14 @@ private:
   std::unique_ptr<ranker_type> ranker;
 
 public:
-  idx_invfile() = default;
   double m_F;
   double m_conjunctive_max;
 
-  // Search constructor 
-  idx_invfile(std::string& postings_file, const double F) : m_F(F)
+  // Search constructor
+  idx_invfile(std::string& postings_file, const double F, index_form& t_index_type)
   {
-    
+    cout << "construct(idx_invfile)"<< endl;
+    m_F = F;
     std:: ifstream ifs(postings_file);
     if (ifs.is_open() != true){
       std::cerr << "Could not open file: " <<  postings_file << std::endl;
@@ -75,10 +75,13 @@ public:
     }
     size_t num_lists; 
     read_member(num_lists,ifs);
+    // AK: SPLITLISTS
+    if (t_index_type == SPWAND) num_lists*=2;
     m_postings_lists.resize(num_lists);
     for (size_t i=0;i<num_lists;i++) {
       m_postings_lists[i].load(ifs);
     }
+    cout << "Done" << endl;
   }
 
   auto serialize(std::ostream& out, 
@@ -297,8 +300,7 @@ public:
   double evaluate_pivot(std::vector<plist_wrapper*>& postings_lists,
                         score_heap& heap,
                         double potential_score,
-                        const double threshold,
-                        const size_t k) {
+                        const double threshold) {
 
     auto doc_id = postings_lists[0]->cur.docid(); //Pivot ID
     double doc_score = 0;
@@ -347,8 +349,7 @@ public:
   double evaluate_pivot_bmw(std::vector<plist_wrapper*>& postings_lists,
                         score_heap& heap,
                         double potential_score,
-                        const double threshold,
-                        const size_t k) {
+                        const double threshold) {
 
     uint64_t doc_id = postings_lists[0]->cur.docid(); // pivot
     double doc_score = 0;
@@ -398,11 +399,8 @@ public:
 
 
   // Wand Disjunctive Algorithm
-  result process_wand_disjunctive(std::vector<plist_wrapper*>& postings_lists,
-                                  const size_t k) {
-    score_heap heap(k);
-
-    // init list processing 
+  result process_wand_disjunctive(std::vector<plist_wrapper*>& postings_lists,score_heap& heap) {
+    // init list processing
     double threshold = heap.top().score;
 
     // Initial Sort, get the pivot and its potential score
@@ -415,11 +413,7 @@ public:
     while (pivot_list != postings_lists.size()) {
       // If the first posting ID is that of the pivot, evaluate!
       if (postings_lists[0]->cur.docid() == postings_lists[pivot_list]->cur.docid()) {
-          threshold = evaluate_pivot(postings_lists,
-                                     heap,
-                                     potential_score,
-                                     threshold,
-                                     k);
+          threshold = evaluate_pivot(postings_lists, heap, potential_score, threshold);
       }
       // We must forward the lists before the pivot up to our pivot doc
       else {
@@ -433,12 +427,10 @@ public:
   }
 
   // Wand Conjunctive Algorithm
-  result process_wand_conjunctive(std::vector<plist_wrapper*>& postings_lists,
-                                  const size_t k) {
-    score_heap heap(k);
-
-    // init list processing 
+  result process_wand_conjunctive(std::vector<plist_wrapper*>& postings_lists, score_heap& heap) {
+    // init list processing
     double threshold = heap.top().score;
+
     // Initial Sort, get the pivot and its potential score
     sort_list_by_id(postings_lists);
     size_t initial = postings_lists.size();
@@ -452,11 +444,7 @@ public:
                 postings_lists.size() == initial) {
       // If the first posting ID is that of the pivot, evaluate!
       if (postings_lists[0]->cur.docid() == postings_lists[pivot_list]->cur.docid()) {
-          threshold = evaluate_pivot(postings_lists,
-                                     heap,
-                                     potential_score,
-                                     threshold,
-                                     k);
+          threshold = evaluate_pivot(postings_lists, heap, potential_score, threshold);
       }
       // We must forward the lists before the pivot up to our pivot doc  
       else {
@@ -470,10 +458,7 @@ public:
   }
 
   // BlockMax Wand Disjunctive
-  result process_bmw_disjunctive(std::vector<plist_wrapper*>& postings_lists,
-                            const size_t k){   
-    score_heap heap(k);
-
+  result process_bmw_disjunctive(std::vector<plist_wrapper*>& postings_lists, score_heap& heap){
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
@@ -493,8 +478,7 @@ public:
       if (candidate) {
         // If lists are aligned for pivot, score the doc
         if (postings_lists[0]->cur.docid() == candidate_id) {
-          threshold = evaluate_pivot_bmw(postings_lists, heap,
-                                     potential_score, threshold, k);
+          threshold = evaluate_pivot_bmw(postings_lists, heap, potential_score, threshold);
         }
         // Need to forward list before the pivot 
         else {
@@ -514,10 +498,7 @@ public:
   }
 
   // BlockMax Wand Conjunctive
-  result process_bmw_conjunctive(std::vector<plist_wrapper*>& postings_lists,
-                                const size_t k){   
-    score_heap heap(k);
-
+  result process_bmw_conjunctive(std::vector<plist_wrapper*>& postings_lists, score_heap& heap){
     // init list processing , grab first pivot and potential score
     double threshold = heap.top().score;
     sort_list_by_id(postings_lists);
@@ -539,8 +520,7 @@ public:
       if (candidate) {
         // If lists are aligned for pivot, score the doc
         if (postings_lists[0]->cur.docid() == candidate_id) {
-          threshold = evaluate_pivot_bmw(postings_lists, heap,
-                                     potential_score, threshold, k);
+          threshold = evaluate_pivot_bmw(postings_lists, heap, potential_score, threshold);
         }
         // Need to forward list before the pivot 
         else {
@@ -561,6 +541,7 @@ public:
 
 
   result search(const std::vector<query_token>& qry, const size_t k,
+                const double start_heap,
                 const index_form t_index_type,
                 const query_traversal t_index_traversal) {
 
@@ -575,40 +556,29 @@ public:
       ++j;
     }
 
+    score_heap heap(k);
+
     // Select and run query
     if (t_index_type == BMW) {
-      if (t_index_traversal == OR)
-        return process_bmw_disjunctive(postings_lists,k);
+    if (t_index_traversal == OR)
+        return process_bmw_disjunctive(postings_lists,heap);
       else if (t_index_traversal == AND)
-        return process_bmw_conjunctive(postings_lists,k);
+        return process_bmw_conjunctive(postings_lists,heap);
     }
 
     else if (t_index_type == WAND) {
       if (t_index_traversal == OR)
-        return process_wand_disjunctive(postings_lists,k);
+        return process_wand_disjunctive(postings_lists,heap);
       else if (t_index_traversal == AND)
-        return process_wand_conjunctive(postings_lists,k);
+        return process_wand_conjunctive(postings_lists,heap);
     }
-    
-    else {
-      std::cerr << "Invalid run-type selected. Must be wand or bmw."
+
+    std::cerr << "Invalid run-type selected. Must be wand or bmw."
                 << std::endl;
-      exit(EXIT_FAILURE);
-    }
+    exit(EXIT_FAILURE);
   }
 
 };
 
-// Search
-template<class t_pl,class t_rank>
-void construct(idx_invfile<t_pl,t_rank> &idx,
-               std::string& postings_file, 
-                const double F)
-{
-    using namespace sdsl;
-    cout << "construct(idx_invfile)"<< endl;
-    idx = idx_invfile<t_pl,t_rank>(postings_file, F);
-    cout << "Done" << endl;
-}
 #endif
 
