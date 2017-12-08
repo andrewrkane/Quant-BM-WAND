@@ -26,7 +26,7 @@ int main(int argc, char **argv)
 	if (last_param == argc)
 	{
 		std::cout << "USAGE: " << argv[0];
-		std::cout << " [ATIRE options] <NONE|-|orderfilename> <collection folder> <index_type>\n"
+		std::cout << " [ATIRE options] <NONE|RANDOM|-|orderfilename> <collection folder> <index_type>\n"
               << " index type can be `BMW` or `WAND` or `SPWAND`" << std::endl;
 		return EXIT_FAILURE;
 	}
@@ -100,6 +100,16 @@ int main(int argc, char **argv)
     for (uint32_t i = 0; i < doc_count; i++) {
       reorder.emplace_back(i); reorderInv.emplace_back(i);
     }
+  } else if (order_file == "RANDOM") {
+    // AK: random order
+    std::cout << "Computing random order." << std::endl;
+    for (uint32_t i = 0; i < doc_count; i++) { reorder.emplace_back(i); }
+    srand(time(NULL));
+    for (uint32_t i = 0; i < doc_count; i++) {
+      int r = rand() % doc_count;
+      std::swap(reorder[i],reorder[r]);
+    }
+    for (uint32_t i = 0; i < doc_count; i++) { reorderInv[reorder[i]] = i; }
   } else {
     for (uint32_t i = 0; i < doc_count; i++) {
       reorder.emplace_back(-1); reorderInv.emplace_back(-1);
