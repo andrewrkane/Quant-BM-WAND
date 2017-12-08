@@ -337,17 +337,28 @@ int main(int argc, char **argv)
 
       while (doc_count_ptr < impact_offset_start) {
         // AK: SPLITLISTS >10k and use 10% of list size up to change of impact/quantum
+        /*
         static int splitListsMinSize = 10000;
         if (index_format == SPWAND && !bSecondList
             && leaf.local_document_frequency>splitListsMinSize
             && post.size()>((double)leaf.local_document_frequency)*0.10) {
           bSecondList = true;
         }
+         */
 
         factory.decompress(raw, postings_list + beginning_of_the_postings + *impact_offset_ptr, *doc_count_ptr);
         docid = -1;
         current = raw;
         end = raw + *doc_count_ptr;
+
+        // AK: SPLITLISTS >10k and use max 10% of list size up to change of impact/quantum (unless first impact >10%)
+        static int splitListsMinSize = 10000;
+        if (index_format == SPWAND && !bSecondList
+            && leaf.local_document_frequency>splitListsMinSize
+            && post.size()>0 & post.size()+*doc_count_ptr>((double)leaf.local_document_frequency)*0.10) {
+          bSecondList = true;
+        }
+
         while (current < end) {
           docid += *current++;
           // AK: SPLITLISTS
@@ -398,7 +409,7 @@ int main(int argc, char **argv)
           plist_type pl(ranker, post2, index_format);
           sdsl::serialize(pl, ofs);
           // debugging
-          //if (post.size()+post2.size()>100000) std::cerr<<" sp("<<post.size()<<","<<post2.size()<<")";
+          //if (post.size()+post2.size()>100000) std::cerr<<" sp("<<post.size()<<","<<post2.size()<<","<<(double)post.size()/leaf.local_document_frequency<<":"<<(post.size()>0?post[0].second:0)<<","<<(post2.size()>0?post2[0].second:0)<<")";
         } else {
           sdsl::serialize(block_postings_list<128>(), ofs);
         }
