@@ -104,7 +104,6 @@ struct query_parser {
                 uint64_t id = std::stoull(idstr);
                 id_mapping[term] = id;
                 reverse_id_mapping[id] = term;
-                if (list_threshold_k <= 0) { start_heap_mapping[id]=0; }
             }
             std::cerr<<"done loading "<<dict_file<<std::endl;
         }
@@ -162,8 +161,10 @@ struct query_parser {
             const auto& tids = std::get<2>(mapped_qry);
             for(const auto& tid : tids) {
                 qry_set[tid] += 1;
-                // AK: start_heap using max top-1000 from lists
-                if (start_heap_mapping.at(tid)>start_heap) start_heap = start_heap_mapping.at(tid);
+                // AK: start_heap using max top-k from lists
+                if (start_heap_mapping.find(tid) != start_heap_mapping.end()) {
+                  if (start_heap_mapping.at(tid)>start_heap) start_heap = start_heap_mapping.at(tid);
+                }
             }
             std::vector<query_token> query_tokens;
             size_t index = 0;

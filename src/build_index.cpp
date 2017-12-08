@@ -20,7 +20,7 @@ const static size_t INDRI_OFFSET = 2; // Indri offsets terms 0 and 1 as special
 
 int main(int argc, char **argv)
 {
-	ANT_ANT_param_block params(argc, argv);
+	ANT_ANT_param_block params(argc-3, argv);
 	long last_param = params.parse();
 
 	if (last_param == argc)
@@ -227,12 +227,15 @@ int main(int argc, char **argv)
 
   // write inverted files
   {
-    // output 1st,10th,100th and 1000th highest impacts for bootstrap thresholds
+    // output 1st,10th,50th,100th,500th,1000th and 2000th highest impacts for bootstrap thresholds
     uint64_t list_thresholds_id=2;
     ofstream list_thresholds_out_1(collection_folder+"/list_thresholds_1.txt");
     ofstream list_thresholds_out_10(collection_folder+"/list_thresholds_10.txt");
+    ofstream list_thresholds_out_50(collection_folder+"/list_thresholds_50.txt");
     ofstream list_thresholds_out_100(collection_folder+"/list_thresholds_100.txt");
+    ofstream list_thresholds_out_500(collection_folder+"/list_thresholds_500.txt");
     ofstream list_thresholds_out_1000(collection_folder+"/list_thresholds_1000.txt");
+    ofstream list_thresholds_out_2000(collection_folder+"/list_thresholds_2000.txt");
 
     using plist_type = block_postings_list<128>;
     vector<plist_type> m_postings_lists;
@@ -349,11 +352,23 @@ int main(int argc, char **argv)
         doc_count_ptr++;
       }
 
-      // AK: output 1st,10th,100th and 1000th highest impact (to bootstrap threshold values)
-      list_thresholds_out_1<<list_thresholds_id<<" "<<(post.size()>=1?post[1-1].second:0)<<endl;
-      list_thresholds_out_10<<list_thresholds_id<<" "<<(post.size()>=1?post[10-1].second:0)<<endl;
-      list_thresholds_out_100<<list_thresholds_id<<" "<<(post.size()>=1?post[100-1].second:0)<<endl;
-      list_thresholds_out_1000<<list_thresholds_id<<" "<<(post.size()>=1?post[1000-1].second:0)<<endl;
+#define GETPOST(x) (post.size()>=x ? post[x-1].second : post2[x-post.size()-1].second)
+      // AK: output 1st,10th,50th,100th,500th,1000th and 2000th highest impact if exists (to bootstrap threshold values)
+      size_t s = post.size()+post2.size();
+      if (s>=1) { list_thresholds_out_1<<list_thresholds_id<<" "<<GETPOST(1)<<endl;
+        if (s>=10) { list_thresholds_out_10<<list_thresholds_id<<" "<<GETPOST(10)<<endl;
+          if (s>=50) { list_thresholds_out_50<<list_thresholds_id<<" "<<GETPOST(50)<<endl;
+            if (s>=100) { list_thresholds_out_100<<list_thresholds_id<<" "<<GETPOST(100)<<endl;
+              if (s>=500) { list_thresholds_out_500<<list_thresholds_id<<" "<<GETPOST(500)<<endl;
+                if (s>=1000) { list_thresholds_out_1000<<list_thresholds_id<<" "<<GETPOST(1000)<<endl;
+                  if (s>=2000) { list_thresholds_out_2000<<list_thresholds_id<<" "<<GETPOST(2000)<<endl;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
       list_thresholds_id++;
 
       // AK: reordering could cause prune list to be empty
