@@ -52,7 +52,7 @@ using query_t = std::tuple<uint64_t,std::vector<query_token>,double>; // query_i
 
 #include <strstream>
 std::string itos( int n ) {
-  std::strstream ss;
+  std::stringstream ss;
   ss << n;
   return ss.str();
 }
