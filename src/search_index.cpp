@@ -4,6 +4,14 @@
 #include <iomanip>
 #include <ctime>
 
+// AK: SPLITLISTS and LISTTHRESHOLDS need compile time change
+#ifndef LISTTHRESHOLDS
+#define LISTTHRESHOLDS false
+#endif
+#ifndef SPLITLISTS
+#define SPLITLISTS false
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -148,7 +156,8 @@ main (int argc,char* const argv[])
  
   /* parse queries */
   std::cout << "Parsing query file '" << args.query_file << "'" << std::endl;
-  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file, (args.use_list_threshold==LT1k?1000:args.k));
+  size_t list_threshold_k = (args.use_list_threshold==LT1k?1000:args.k);
+  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file, (LISTTHRESHOLDS?list_threshold_k:0));
   std::cout << "Found " << queries.size() << " queries." << std::endl;
 
   std::string index_name(basename(strdup(args.collection_dir.c_str())));

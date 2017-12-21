@@ -44,5 +44,7 @@ then
 fi
 cd ..
 mv src/build_index bin/build_index
-mv build/search_index bin/search_index
+mv build/search_index_newcode bin/search_index_newcode
+mv build/search_index_listthresholds bin/search_index_listthresholds
+mv build/search_index_splitlists bin/search_index_splitlists
 echo "Binaries are now in the bin directory"
