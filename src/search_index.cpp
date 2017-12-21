@@ -207,9 +207,8 @@ main (int argc,char* const argv[])
       auto qry_stop = clock::now();
 
       auto query_time = std::chrono::duration_cast<std::chrono::microseconds>(qry_stop-qry_start);
-      std::cout << " TIME = " << std::setprecision(5)
-                << query_time.count() / 1000.0 
-                << " ms" << std::endl;
+      // debugging
+      //std::cout << " TIME = " << std::setprecision(5) << query_time.count()/1000.0 << " ms" << std::endl;
 
       auto itr = query_times.find(id);
       if(itr != query_times.end()) {
