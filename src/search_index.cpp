@@ -189,7 +189,7 @@ main (int argc,char* const argv[])
   std::map<uint64_t,result> query_results;
   std::map<uint64_t,uint64_t> query_lengths;
 
-  size_t num_runs = 3;
+  size_t num_runs = 10;
   std::cerr << "Times are the average across " << num_runs << " runs." << std::endl;
   for(size_t i = 0; i < num_runs; i++) {
     // For each query
