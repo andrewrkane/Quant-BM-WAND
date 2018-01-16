@@ -23,7 +23,8 @@ enum postings_form {
 enum index_form {
   WAND,
   SPWAND, // AK: SPLITLISTS
-  BMW
+  BMW,
+  SPBMW // AK: SPLITLISTS
 };
 
 enum query_traversal {
@@ -43,6 +44,7 @@ char *ATIRE_DOCUMENT_FILE_END = "~documentfilenamesfinish";
 const std::string STRING_WAND = "WAND";
 const std::string STRING_SPWAND = "SPWAND"; // AK: SPLITLISTS
 const std::string STRING_BMW = "BMW";
+const std::string STRING_SPBMW = "SPBMW"; // AK: SPLITLISTS
 const std::string DICT_FILENAME = "dict.txt";
 const std::string DOCNAMES_FILENAME = "doc_names.txt";
 const std::string STRING_FREQ = "FREQUENCY";

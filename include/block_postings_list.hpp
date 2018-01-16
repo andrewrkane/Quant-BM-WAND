@@ -142,7 +142,7 @@ public: // constructors
       // Generic
 	    create_block_support(tmp_data);
         
-      if (index_type == BMW) {
+      if (index_type == BMW || index_type == SPBMW) {
         // BMW specific
         create_rank_support_bmw(tmp_data,tmp_freq, ranker);
       }

@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 	{
 		std::cout << "USAGE: " << argv[0];
 		std::cout << " [ATIRE options] <NONE|RANDOM|-|orderfilename> <collection folder> <index_type>\n"
-              << " index type can be `BMW` or `WAND` or `SPWAND`" << std::endl;
+              << " index type can be `BMW` or `WAND` or `SPBMW` or `SPWAND`" << std::endl;
 		return EXIT_FAILURE;
 	}
 	using clock = std::chrono::high_resolution_clock;
@@ -47,10 +47,13 @@ int main(int argc, char **argv)
 
 	auto build_start = clock::now();
 
-  // Select the index format - BMW or WAND or SPWAND?
+  // Select the index format - BMW or WAND or SPWAND or SPBMW
   index_form index_format;
   if (s_index_type == STRING_BMW) {
     index_format = BMW;
+  }
+  else if (s_index_type == STRING_SPBMW) {
+    index_format = SPBMW;
   }
   else if (s_index_type == STRING_WAND) {
     index_format = WAND;
@@ -290,10 +293,10 @@ int main(int argc, char **argv)
     // take the 0 and 1 terms with dummies
     sdsl::serialize(block_postings_list<128>(), ofs);
     // AK: SPLITLISTS
-    if (index_format == SPWAND) sdsl::serialize(block_postings_list<128>(), ofs);
+    if (index_format == SPWAND || index_format == SPBMW) sdsl::serialize(block_postings_list<128>(), ofs);
     sdsl::serialize(block_postings_list<128>(), ofs);
     // AK: SPLITLISTS
-    if (index_format == SPWAND) sdsl::serialize(block_postings_list<128>(), ofs);
+    if (index_format == SPWAND || index_format == SPBMW) sdsl::serialize(block_postings_list<128>(), ofs);
 
      for (char *term = iter.first(NULL); term != NULL; term_count++, term = iter.next())
     {
@@ -327,7 +330,7 @@ int main(int argc, char **argv)
       post.clear();
       post.reserve(leaf.local_document_frequency);
       // AK: SPLITLISTS
-      if (index_format == SPWAND) {
+      if (index_format == SPWAND || index_format == SPBMW) {
         post2.clear();
         post2.reserve(leaf.local_document_frequency);
       }
@@ -339,7 +342,7 @@ int main(int argc, char **argv)
         // AK: SPLITLISTS >10k and use 10% of list size up to change of impact/quantum
         /*
         static int splitListsMinSize = 10000;
-        if (index_format == SPWAND && !bSecondList
+        if ((index_format == SPWAND || index_format == SPBMW) && !bSecondList
             && leaf.local_document_frequency>splitListsMinSize
             && post.size()>((double)leaf.local_document_frequency)*0.10) {
           bSecondList = true;
@@ -353,7 +356,7 @@ int main(int argc, char **argv)
 
         // AK: SPLITLISTS >10k and use max 10% of list size up to change of impact/quantum (unless first impact >10%)
         static int splitListsMinSize = 10000;
-        if (index_format == SPWAND && !bSecondList
+        if ((index_format == SPWAND || index_format == SPBMW) && !bSecondList
             && leaf.local_document_frequency>splitListsMinSize
             && post.size()>0 & post.size()+*doc_count_ptr>((double)leaf.local_document_frequency)*0.10) {
           bSecondList = true;
@@ -362,7 +365,7 @@ int main(int argc, char **argv)
         while (current < end) {
           docid += *current++;
           // AK: SPLITLISTS
-          if (index_format == SPWAND && bSecondList) {
+          if ((index_format == SPWAND || index_format == SPBMW) && bSecondList) {
             post2.emplace_back(reorder[docid], *impact_value_ptr);
           } else {
             post.emplace_back(reorder[docid], *impact_value_ptr);
@@ -402,7 +405,7 @@ int main(int argc, char **argv)
         sdsl::serialize(block_postings_list<128>(), ofs);
       }
       // AK: SPLITLISTS
-      if (index_format == SPWAND) {
+      if (index_format == SPWAND || index_format == SPBMW) {
         if (post2.size() > 0) {
           // The above will result in sorted by impact first, so re-sort by docid
           std::sort(std::begin(post2), std::end(post2));

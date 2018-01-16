@@ -4,12 +4,15 @@
 #include <iomanip>
 #include <ctime>
 
-// AK: SPLITLISTS and LISTTHRESHOLDS need compile time change
+// AK: SPLITLISTS, SPLITNOCHECK, and LISTTHRESHOLDS need compile time change
 #ifndef LISTTHRESHOLDS
 #define LISTTHRESHOLDS false
 #endif
 #ifndef SPLITLISTS
 #define SPLITLISTS false
+#endif
+#ifndef SPLITNOCHECK
+#define SPLITNOCHECK false
 #endif
 
 #include <sys/types.h>
@@ -135,6 +138,8 @@ main (int argc,char* const argv[])
     t_index_type = SPWAND;
   else if (t_traversal == STRING_BMW)
     t_index_type = BMW;
+  else if (t_traversal == STRING_SPBMW)
+    t_index_type = SPBMW;
   else {
     std::cerr << "Index is corrupted (traversal="<<t_traversal<<"). Please rebuild." << std::endl;
     exit(EXIT_FAILURE);
