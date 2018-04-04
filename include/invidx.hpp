@@ -16,10 +16,13 @@ using namespace sdsl;
 
 class score_heap : public std::priority_queue<doc_score, std::vector<doc_score>, std::greater<doc_score>> {
 public:
-  score_heap(const size_t k) {
-    for (int i=0; i<k; i++) { push({(uint64_t)-1,0.0}); }
+  score_heap(const size_t k, double start_heap) {
+    for (int i=0; i<k; i++) { push({(uint64_t)-1,start_heap}); }
   }
   result toresult() {
+    // AK: debugging
+    std::cerr<<" [heap.top="<<top().score<<"]";
+
     result res;
     // return the top-k results
     while (size()>0 && top().doc_id==(uint64_t)-1) { pop(); }
@@ -47,12 +50,17 @@ private:
     double list_max_score;
     double f_t;
     size_t list_size;
+    plist_wrapper* pair; // AK: SPLITLISTS
+    uint64_t pair_max_score; // AK: SPLITLISTS
     plist_wrapper() = default;
     plist_wrapper(plist_type& pl) {
       f_t = list_size = pl.size();
       cur = pl.begin();
       end = pl.end();
       list_max_score = pl.list_max_score();
+      // AK: SPLITLISTS
+      pair=NULL;
+      pair_max_score=0;
     }
   };
 private:
@@ -76,7 +84,7 @@ public:
     size_t num_lists; 
     read_member(num_lists,ifs);
     // AK: SPLITLISTS
-    if (t_index_type == SPWAND) num_lists*=2;
+    if (t_index_type == SPWAND || t_index_type == SPBMW) num_lists*=2;
     m_postings_lists.resize(num_lists);
     for (size_t i=0;i<num_lists;i++) {
       m_postings_lists[i].load(ifs);
@@ -235,26 +243,49 @@ public:
   // Block-Max specific candidate test. Tests that the current pivot's block-max
   // scores still exceed the heap threshold. Returns the block-max score sum and
   // a boolean (whether we should indeed score, or not)
-  const std::pair<bool, double>
+  const bool
   potential_candidate(std::vector<plist_wrapper*>& postings_lists,
                       size_t& pivot_list, const double threshold,
-                      const uint64_t doc_id){
+                      const uint64_t doc_id, /*output*/ double& block_max_score){
 
-    size_t iter = 0;
-    double block_max_score = postings_lists[pivot_list]->cur.block_max(); // pivot blockmax
+    // AK: SPLITLISTS
+    if (false && !SPLITNOCHECK && SPLITLISTS) { // AK: remove this for now since always slower
+      size_t iter = 0;
+      block_max_score = 0;
+      // Lists preceding pivot list block max scores
+      while (iter <= pivot_list) {
+        uint64_t bid = postings_lists[iter]->cur.block_containing_id(doc_id);
+        // AK: if both iter and pair to be counted then count only when pair before iter
+        if (postings_lists[iter]->pair->cur != postings_lists[iter]->pair->end
+            && postings_lists[iter]->pair->cur.docid() <= doc_id
+            && postings_lists[iter]->pair->cur.docid() <= postings_lists[iter]->cur.docid()) {
+          uint64_t bid_pair = postings_lists[iter]->pair->cur.block_containing_id(doc_id);
+          block_max_score += max(postings_lists[iter]->cur.block_max(bid),
+                                 postings_lists[iter]->pair->cur.block_max(bid_pair));
+        } else {
+          block_max_score += postings_lists[iter]->cur.block_max(bid);
+        }
+        ++iter;
+      }
+    }
+    // AK: !SPLITLISTS
+    else {
+      size_t iter = 0;
+      block_max_score = postings_lists[pivot_list]->cur.block_max(); // pivot blockmax
 
-    // Lists preceding pivot list block max scores
-    while (iter != pivot_list) {
-      uint64_t bid = postings_lists[iter]->cur.block_containing_id(doc_id);
-      block_max_score += postings_lists[iter]->cur.block_max(bid);
-      ++iter;
+      // Lists preceding pivot list block max scores
+      while (iter != pivot_list) {
+        uint64_t bid = postings_lists[iter]->cur.block_containing_id(doc_id);
+        block_max_score += postings_lists[iter]->cur.block_max(bid);
+        ++iter;
+      }
     }
 
     // block-max test
     if (block_max_score > threshold) {
-      return {true,block_max_score};
+      return true;
     }
-    return {false,block_max_score};
+    return false;
   }
 
   // Returns a pivot document and its candidate (UB estimated) score.
@@ -280,14 +311,28 @@ public:
     itr = 0;
     auto end = postings_lists.size();
     while(itr != end) {
-      score += postings_lists[itr]->list_max_score;
+      // AK: SPLITLISTS
+      if (!SPLITNOCHECK && SPLITLISTS
+          && postings_lists[itr]->pair->cur != postings_lists[itr]->pair->end
+          && postings_lists[itr]->pair->cur.docid() <= postings_lists[itr]->cur.docid()) {
+        score += postings_lists[itr]->pair_max_score;
+      } else {
+        score += postings_lists[itr]->list_max_score;
+      }
       if(score > threshold) {
         // forward to last list equal to pivot
         auto pivot_id = postings_lists[itr]->cur.docid();
         auto next = itr+1;
         while(next != end && postings_lists[next]->cur.docid() == pivot_id) {
           itr = next;
-          score += postings_lists[itr]->list_max_score;
+          // AK: SPLITLISTS
+          if (!SPLITNOCHECK && SPLITLISTS
+              && postings_lists[itr]->pair->cur != postings_lists[itr]->pair->end
+              && postings_lists[itr]->pair->cur.docid() <= postings_lists[itr]->cur.docid()) {
+            score += postings_lists[itr]->pair_max_score;
+          } else {
+            score += postings_lists[itr]->list_max_score;
+          }
           ++next;
         }
         return;
@@ -399,7 +444,7 @@ public:
 
 
   // Wand Disjunctive Algorithm
-  result process_wand_disjunctive(std::vector<plist_wrapper*>& postings_lists,score_heap& heap) {
+  result process_wand_disjunctive(std::vector<plist_wrapper*>& postings_lists, score_heap& heap) {
     // init list processing
     double threshold = heap.top().score;
 
@@ -470,10 +515,8 @@ public:
     while (pivot_list != postings_lists.size()) {
       uint64_t candidate_id = postings_lists[pivot_list]->cur.docid();
       // Second level candidate check
-      auto candidate_and_score = potential_candidate(postings_lists, pivot_list,
-                                          threshold, candidate_id);
-      auto candidate = std::get<0>(candidate_and_score);
-      auto potential_score = std::get<1>(candidate_and_score);
+      auto candidate = potential_candidate(postings_lists, pivot_list,
+                                          threshold, candidate_id, potential_score);
       // If the document is still a candidate from BM scores
       if (candidate) {
         // If lists are aligned for pivot, score the doc
@@ -512,10 +555,8 @@ public:
                          postings_lists.size() == initial) {
       uint64_t candidate_id = postings_lists[pivot_list]->cur.docid();
       // Second level candidate check
-      auto candidate_and_score = potential_candidate(postings_lists, pivot_list,
-                                          threshold, candidate_id);
-      auto candidate = std::get<0>(candidate_and_score);
-      auto potential_score = std::get<1>(candidate_and_score);
+      auto candidate = potential_candidate(postings_lists, pivot_list,
+                                          threshold, candidate_id, potential_score);
       // If the document is still a candidate from BM scores
       if (candidate) {
         // If lists are aligned for pivot, score the doc
@@ -539,42 +580,88 @@ public:
     return heap.toresult();
   }
 
+  void usage() {
+    std::cerr<<"Invalid run-type/index-traversal combination. Must be "
+             <<(SPLITLISTS?"SPWAND(OR) or BMW(OR)":"WAND(AND|OR) or BMW(AND|OR)")
+             <<"."<<std::endl;
+  }
+
 
   result search(const std::vector<query_token>& qry, const size_t k,
                 const double start_heap,
                 const index_form t_index_type,
                 const query_traversal t_index_traversal) {
 
+    // validate parameters before loading index
+    if ((SPLITLISTS && t_index_type == BMW)
+        || (SPLITLISTS && t_index_type == WAND)
+        || (!SPLITLISTS && t_index_type == SPBMW)
+        || (!SPLITLISTS && t_index_type == SPWAND)) {
+      usage();
+      exit(EXIT_FAILURE);
+    }
+
     m_conjunctive_max = 0.0f; // Reset for new query
-    std::vector<plist_wrapper> pl_data(qry.size());
+    // AK: SPLITLISTS
+    std::vector<plist_wrapper> pl_data(t_index_type == SPWAND || t_index_type == SPBMW ? 2*qry.size() : qry.size());
     std::vector<plist_wrapper*> postings_lists;
     size_t j=0;
     for (const auto& qry_token : qry) {
-      pl_data[j] = plist_wrapper(m_postings_lists[qry_token.token_id]);
-      postings_lists.emplace_back(&(pl_data[j]));
       m_conjunctive_max += pl_data[j].list_max_score;
-      ++j;
+      if (t_index_type == SPWAND || t_index_type == SPBMW) {
+        // AK: SPLITLISTS are encoded in series, so 2x and 2x+1, and pair them together
+        pl_data[j] = plist_wrapper(m_postings_lists[2*qry_token.token_id]);
+        postings_lists.emplace_back(&(pl_data[j]));
+        ++j;
+        pl_data[j] = plist_wrapper(m_postings_lists[2*qry_token.token_id+1]);
+        postings_lists.emplace_back(&(pl_data[j]));
+        ++j;
+        pl_data[j-1].pair = &pl_data[j-2];
+        pl_data[j-2].pair = &pl_data[j-1];
+        pl_data[j-1].pair_max_score = max(0, (int)(pl_data[j-1].list_max_score) - (int)(pl_data[j-1].pair->list_max_score));
+        pl_data[j-2].pair_max_score = max(0, (int)(pl_data[j-2].list_max_score) - (int)(pl_data[j-2].pair->list_max_score));
+      } else {
+        pl_data[j] = plist_wrapper(m_postings_lists[qry_token.token_id]);
+        postings_lists.emplace_back(&(pl_data[j]));
+        ++j;
+      }
     }
+    // AK: debugging
+    //std::cerr<<" [sizes";for (int i=0; i<pl_data.size(); ++i) { std:cerr<<" "<<pl_data[i].list_size; } std::cerr<<"]";
 
-    score_heap heap(k);
+    score_heap heap(k, start_heap);
+
+    // AK: debugging
+    std::cerr<<" [start_heap="<<start_heap<<"]";
 
     // Select and run query
-    if (t_index_type == BMW) {
-    if (t_index_traversal == OR)
+    if (!SPLITLISTS && t_index_type == BMW) {
+      if (t_index_traversal == OR)
         return process_bmw_disjunctive(postings_lists,heap);
       else if (t_index_traversal == AND)
         return process_bmw_conjunctive(postings_lists,heap);
     }
 
-    else if (t_index_type == WAND) {
+    else if (!SPLITLISTS && t_index_type == WAND) {
       if (t_index_traversal == OR)
         return process_wand_disjunctive(postings_lists,heap);
       else if (t_index_traversal == AND)
         return process_wand_conjunctive(postings_lists,heap);
     }
 
-    std::cerr << "Invalid run-type selected. Must be wand or bmw."
-                << std::endl;
+    else if (SPLITLISTS && t_index_type == SPBMW) {
+      // AK: SPLITLISTS - differences from WAND processing come from setting SPLITLISTS variable
+      if (t_index_traversal == OR)
+        return process_bmw_disjunctive(postings_lists,heap);
+    }
+
+    else if (SPLITLISTS && t_index_type == SPWAND) {
+      // AK: SPLITLISTS - differences from WAND processing come from setting SPLITLISTS variable
+      if (t_index_traversal == OR)
+        return process_wand_disjunctive(postings_lists,heap);
+    }
+
+    usage();
     exit(EXIT_FAILURE);
   }
 
