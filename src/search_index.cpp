@@ -4,10 +4,7 @@
 #include <iomanip>
 #include <ctime>
 
-// AK: SPLITLISTS, SPLITNOCHECK, and LISTTHRESHOLDS need compile time change
-#ifndef LISTTHRESHOLDS
-#define LISTTHRESHOLDS false
-#endif
+// AK: SPLITLISTS and SPLITNOCHECK need compile time change
 #ifndef SPLITLISTS
 #define SPLITLISTS false
 #endif
@@ -162,7 +159,7 @@ main (int argc,char* const argv[])
   /* parse queries */
   std::cout << "Parsing query file '" << args.query_file << "'" << std::endl;
   size_t list_threshold_k = (args.use_list_threshold==LT1k?1000:args.k);
-  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file, (LISTTHRESHOLDS?list_threshold_k:0));
+  auto queries = query_parser::parse_queries(args.collection_dir,args.query_file, (args.use_list_threshold==LTDYNAMIC?list_threshold_k:0));
   std::cout << "Found " << queries.size() << " queries." << std::endl;
 
   std::string index_name(basename(strdup(args.collection_dir.c_str())));
@@ -202,10 +199,12 @@ main (int argc,char* const argv[])
   std::map<uint64_t,std::chrono::microseconds> query_times;
   std::map<uint64_t,result> query_results;
   std::map<uint64_t,uint64_t> query_lengths;
+  std::vector<std::chrono::microseconds> workload_times;
 
   size_t num_runs = 10;
   std::cerr << "Times are the average across " << num_runs << " runs." << std::endl;
   for(size_t i = 0; i < num_runs; i++) {
+    std::chrono::microseconds workload_time = std::chrono::microseconds(0);
     // For each query
     for(const auto& query: queries) {
       auto id = std::get<0>(query);
@@ -230,12 +229,14 @@ main (int argc,char* const argv[])
       } else {
         query_times[id] = query_time;
       }
+      workload_time += query_time;
 
       if(i==0) {
         query_results[id] = results;
         query_lengths[id] = qry_tokens.size();
       }
     }
+    workload_times.push_back(workload_time);
   }
 
 
@@ -271,6 +272,18 @@ main (int argc,char* const argv[])
             << query_lengths[qry_id] << ";" 
             << qry_time.count() / 1000.0 << ";"
             << args.traversal_string << std::endl;
+    }
+  } else {
+    perror ("Could not output results to file.");
+  }
+
+  std::string wltime_file = args.output_prefix + "-wltime.log";
+  std::cout << "Writing timing results to '" << wltime_file << "'" << std::endl;
+  std::ofstream resfs2(wltime_file);
+  if(resfs2.is_open()) {
+    resfs2 << "repeat\ttime_ms" << std::endl;
+    for (int i=0; i<num_runs; ++i) {
+      resfs2<<(i+1)<<"\t"<<(workload_times[i].count()/1000.0)<<std::endl;
     }
   } else {
     perror ("Could not output results to file.");

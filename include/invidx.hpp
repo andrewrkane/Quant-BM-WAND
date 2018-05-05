@@ -249,7 +249,7 @@ public:
                       const uint64_t doc_id, /*output*/ double& block_max_score){
 
     // AK: SPLITLISTS
-    if (false && !SPLITNOCHECK && SPLITLISTS) { // AK: remove this for now since always slower
+    if (!SPLITNOCHECK && SPLITLISTS) { // AK: this check is always slower
       size_t iter = 0;
       block_max_score = 0;
       // Lists preceding pivot list block max scores

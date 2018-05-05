@@ -29,15 +29,11 @@ ADD_LIBRARY(fastpfor_lib STATIC external/fastpfor/src/bitpacking.cpp
   ADD_EXECUTABLE(search_index_newcode src/search_index.cpp src/compress_qmx.cpp)
   TARGET_LINK_LIBRARIES(search_index_newcode sdsl divsufsort divsufsort64 pthread fastpfor_lib)
 
-  ADD_EXECUTABLE(search_index_listthresholds src/search_index.cpp src/compress_qmx.cpp)
-  target_compile_definitions(search_index_listthresholds PRIVATE LISTTHRESHOLDS=true)
-  TARGET_LINK_LIBRARIES(search_index_listthresholds sdsl divsufsort divsufsort64 pthread fastpfor_lib)
-
   ADD_EXECUTABLE(search_index_splitlists src/search_index.cpp src/compress_qmx.cpp)
-  target_compile_definitions(search_index_splitlists PRIVATE LISTTHRESHOLDS=true SPLITLISTS=true)
+  target_compile_definitions(search_index_splitlists PRIVATE SPLITLISTS=true)
   TARGET_LINK_LIBRARIES(search_index_splitlists sdsl divsufsort divsufsort64 pthread fastpfor_lib)
 
   ADD_EXECUTABLE(search_index_splitnocheck src/search_index.cpp src/compress_qmx.cpp)
-  target_compile_definitions(search_index_splitnocheck PRIVATE LISTTHRESHOLDS=true SPLITLISTS=true SPLITNOCHECK=true)
+  target_compile_definitions(search_index_splitnocheck PRIVATE SPLITLISTS=true SPLITNOCHECK=true)
   TARGET_LINK_LIBRARIES(search_index_splitnocheck sdsl divsufsort divsufsort64 pthread fastpfor_lib)
 
