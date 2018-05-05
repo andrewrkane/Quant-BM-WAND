@@ -1,3 +1,13 @@
+List Thresholds and Split-lists for WAND/BMW
+======================
+
+This project adds optimizations on top of the WSDM 2017 work (see below).  Results are presented in a SIGIR 2018 short paper:
+
+Andrew Kane, Frank Wm Tompa,
+**Split-Lists and Initial Thresholds for WAND-based Search.**
+In SIGIR 2018.
+
+
 ATIRE-derived Quantized WAND/BMW
 ======================
 
